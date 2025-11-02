@@ -1,4 +1,4 @@
-yamlname: Daily News Aggregator
+name: Daily News Aggregator
 
 on:
   schedule:
