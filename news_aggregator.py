@@ -230,6 +230,7 @@ def build_email(html_content: str, article_count: int) -> str:
             </p>
             <p>Appalachian Daily is a news aggregator created by Jim Branscome. You can provide him feedback at <a href="mailto:jbranscome@gmail.com">jbranscome@gmail.com</a>.</p>
             <p><a href="https://github.com/jbranx/Appalachian-News-Aggregator">Powered by open-source automation</a></p>
+            <p style="font-size: 12px; color: #bdc3c7;"><a href="#" style="color: #ecf0f1;">Unsubscribe</a> | <a href="#" style="color: #ecf0f1;">Manage preferences</a></p>
         </div>
     </div>
 </body>
@@ -238,61 +239,85 @@ def build_email(html_content: str, article_count: int) -> str:
 
 # === SEND EMAIL ===
 def send_email(html_body: str):
+    # Try Mailchimp first (for unsubscribe)
     api_key = os.getenv("MAILCHIMP_API_KEY")
-    if not api_key:
-        log.error("Missing MAILCHIMP_API_KEY secret — cannot send (unsubscribe requires Mailchimp)")
+    if api_key:
+        try:
+            client = MailchimpMarketing.Client()
+            client.set_config({
+                "api_key": api_key,
+                "server": api_key.split('-')[-1]  # e.g., 'us1'
+            })
+
+            list_id = os.getenv("MAILCHIMP_LIST_ID")
+            if list_id:
+                # Add/Update Subscriber
+                recipient = os.getenv("RECIPIENT_EMAIL")
+                if recipient:
+                    subscriber_hash = hashlib.md5(recipient.lower().encode()).hexdigest()
+                    log.info(f"Adding subscriber to Mailchimp: {recipient}")
+                    client.lists.add_or_update_list_member(
+                        list_id=list_id,
+                        subscriber_hash=subscriber_hash,
+                        body={"email_address": recipient, "status": "subscribed"}
+                    )
+
+                # Create Campaign
+                log.info("Creating Mailchimp campaign...")
+                today = datetime.now().strftime("%B %d, %Y")
+                campaign = client.campaigns.create({
+                    "type": "regular",
+                    "recipients": {"list_id": list_id},
+                    "settings": {
+                        "subject_line": f"🏔️ Appalachian Daily • {today}",
+                        "from_name": "Appalachian Daily",
+                        "reply_to": os.getenv("EMAIL_ADDRESS", "noreply@appalachiandaily.com")
+                    }
+                })
+
+                # Set HTML Content
+                client.campaigns.set_campaign_content(
+                    campaign_id=campaign["id"],
+                    body={"html": html_body}
+                )
+
+                # Send
+                log.info("Sending Mailchimp campaign...")
+                response = client.campaigns.send(campaign_id=campaign["id"])
+                log.info(f"✅ Campaign sent via Mailchimp! ID: {campaign['id']} (unsubscribe auto-added)")
+                return
+            else:
+                log.warning("No MAILCHIMP_LIST_ID — falling back to Gmail")
+        except Exception as e:
+            log.warning(f"Mailchimp failed: {e} — falling back to Gmail")
+
+    # Fallback to Gmail
+    log.info("Sending via Gmail SMTP...")
+    sender = os.getenv("EMAIL_ADDRESS")
+    password = os.getenv("EMAIL_PASSWORD")
+    recipient = os.getenv("RECIPIENT_EMAIL")
+
+    if not all([sender, password, recipient]):
+        log.error("Missing Gmail credentials — cannot send")
         return
 
-    client = MailchimpMarketing.Client()
-    client.set_config({
-        "api_key": api_key,
-        "server": api_key.split('-')[-1]  # e.g., 'us1'
-    })
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = f"🏔️ Appalachian Daily • {datetime.now().strftime('%B %d, %Y')}"
+    msg["From"] = sender
+    msg["To"] = recipient
 
-    list_id = os.getenv("MAILCHIMP_LIST_ID")
-    if not list_id:
-        log.error("Missing MAILCHIMP_LIST_ID secret — cannot send")
-        return
+    part = MIMEText(html_body, "html", "utf-8")
+    msg.attach(part)
 
     try:
-        # Add/Update Subscriber
-        recipient = os.getenv("RECIPIENT_EMAIL")
-        if recipient:
-            subscriber_hash = hashlib.md5(recipient.lower().encode()).hexdigest()
-            log.info(f"Adding subscriber: {recipient}")
-            client.lists.add_or_update_list_member(
-                list_id=list_id,
-                subscriber_hash=subscriber_hash,
-                body={"email_address": recipient, "status": "subscribed"}
-            )
-
-        # Create Campaign
-        log.info("Creating Mailchimp campaign...")
-        today = datetime.now().strftime("%B %d, %Y")
-        campaign = client.campaigns.create({
-            "type": "regular",
-            "recipients": {"list_id": list_id},
-            "settings": {
-                "subject_line": f"🏔️ Appalachian Daily • {today}",
-                "from_name": "Appalachian Daily",
-                "reply_to": os.getenv("EMAIL_ADDRESS", "noreply@appalachiandaily.com")
-            }
-        })
-
-        # Set HTML Content
-        client.campaigns.set_campaign_content(
-            campaign_id=campaign["id"],
-            body={"html": html_body}
-        )
-
-        # Send
-        log.info("Sending Mailchimp campaign...")
-        response = client.campaigns.send(campaign_id=campaign["id"])
-        log.info(f"✅ Campaign sent! ID: {campaign['id']} (unsubscribe button auto-added)")
-    except ApiClientError as error:
-        log.error(f"Mailchimp API error: {error.text}")
+        server = smtplib.SMTP("smtp.gmail.com", 587)
+        server.starttls()
+        server.login(sender, password)
+        server.sendmail(sender, recipient, msg.as_string())
+        server.quit()
+        log.info("✅ Email sent via Gmail!")
     except Exception as e:
-        log.error(f"Mailchimp send failed: {e}")
+        log.error(f"Gmail send failed: {e}")
 
 # === MAIN ===
 def main():
