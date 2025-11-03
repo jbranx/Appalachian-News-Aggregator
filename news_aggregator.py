@@ -1,4 +1,4 @@
-python"""
+"""
 Daily News Aggregator
 Fetches top news stories and creates an AI-powered summary email
 """
