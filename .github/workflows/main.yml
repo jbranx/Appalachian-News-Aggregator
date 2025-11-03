@@ -21,7 +21,14 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
+        pname: Debug - List files
+     run: |
+       echo "Current directory:"
+       pwd
+       echo "Files in current directory:"
+       ls -la
+       echo "Looking for news_aggregator.py:"
+       find . -name "news_aggregator.py"ip install -r requirements.txt
     
     - name: Run news aggregator
       env:
