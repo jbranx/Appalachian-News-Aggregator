@@ -1,12 +1,3 @@
-PERFECT! Let me give you an updated script with:
-
-✅ 3-day window (72 hours) - not too old, not too narrow
-✅ 20+ news sources (adding 10 more quality ones)
-✅ Better error handling and logging
-✅ More articles per source
-
-
-📝 UPDATED news_aggregator.py - COPY THIS:
 python"""
 Appalachian News Aggregator
 Fetches news from quality Appalachian regional sources via RSS feeds
@@ -389,15 +380,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-✅ WHAT'S IMPROVED:
-
-✅ 21 news sources (added 10 more!)
-✅ 72-hour window (3 days - not too old)
-✅ Better error handling (shows which sources failed)
-✅ More articles per source (20 instead of 10)
-✅ Better logging (shows success/fail stats)
-✅ Asks Claude for 10-15 stories (instead of just whatever it picks)
-
-
-Replace news_aggregator.py with this and run it! 🚀RetryClaude can make mistakes. Please double-check responses.
