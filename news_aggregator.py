@@ -1,4 +1,4 @@
-python"""
+"""
 Appalachian News Aggregator
 Fetches news from quality Appalachian regional sources via RSS feeds
 """
