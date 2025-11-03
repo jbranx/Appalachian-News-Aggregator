@@ -1,163 +1,146 @@
-""" Appalachian News Aggregator Fetches news from quality Appalachian regional sources via RSS feeds """
+#!/usr/bin/env python3
+"""
+Appalachian Daily News Aggregator
+Daily email digest of regional news using RSS + Claude AI
+"""
 
 import os
-import feedparser
-from datetime import datetime, timedelta
-from anthropic import Anthropic
+import sys
 import logging
+import feedparser
+from datetime import datetime, timedelta, timezone
+from dateutil import parser as date_parser
+import requests
+from anthropic import Anthropic
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from typing import List, Dict, Any
+import html
+import hashlib
+import mailchimp_marketing as MailchimpMarketing
+from mailchimp_marketing.api_client import ApiClientError
 
+# Configure logging
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
-ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')
-EMAIL_ADDRESS = os.getenv('EMAIL_ADDRESS')
-EMAIL_PASSWORD = os.getenv('EMAIL_PASSWORD')
-RECIPIENT_EMAIL = os.getenv('RECIPIENT_EMAIL')
-
-# Comprehensive Appalachian news sources
-RSS_FEEDS = {
+# === CONFIGURATION ===
+SOURCES = [
     # Core Investigative & Policy
-    'Kentucky Lantern': 'https://kentuckylantern.com/feed/',
-    'Cardinal News': 'https://cardinalnews.org/feed/',
-    'West Virginia Watch': 'https://www.wvwatch.org/feed/',
-    'Mountain State Spotlight': 'https://mountainstatespotlight.org/feed/',
-    'Ohio Valley ReSource': 'https://ohiovalleyresource.org/feed/',
+    {"name": "Kentucky Lantern", "url": "https://kentuckylantern.com/feed/"},
+    {"name": "Cardinal News", "url": "https://cardinalnews.org/feed/"},
+    {"name": "West Virginia Watch", "url": "https://www.wvwatch.org/feed/"},
+    {"name": "Mountain State Spotlight", "url": "https://mountainstatespotlight.org/feed/"},
+    {"name": "Ohio Valley ReSource", "url": "https://ohiovalleyresource.org/feed/"},
     # Regional Focus & Culture
-    'Daily Yonder': 'https://dailyyonder.com/feed/',
-    '100 Days in Appalachia': 'https://www.100daysinappalachia.com/feed/',
-    'Appalachian Voices': 'https://appvoices.org/feed/',
-    'Scalawag Magazine': 'https://scalawagmagazine.org/feed/',
+    {"name": "Daily Yonder", "url": "https://dailyyonder.com/feed/"},
+    {"name": "100 Days in Appalachia", "url": "https://www.100daysinappalachia.com/feed/"},
+    {"name": "Appalachian Voices", "url": "https://appvoices.org/feed/"},
+    {"name": "Scalawag Magazine", "url": "https://scalawagmagazine.org/feed/"},
     # Major Regional Papers
-    'Charleston Gazette-Mail': 'https://www.wvgazettemail.com/search/?q=&t=article&l=25&d=&d1=&d2=&s=start_time&sd=desc&c[]=news*&f=rss',
-    'Bristol Herald Courier': 'https://www.heraldcourier.com/search/?q=&t=article&l=25&d=&d1=&d2=&s=start_time&sd=desc&f=rss',
-    'Lexington Herald-Leader': 'https://www.kentucky.com/news/?widgetName=rssfeed&widgetContentId=712015&getXmlFeed=true',
-    # Local & Community News
-    'WYMT Mountain News': 'https://www.wymt.com/news/?format=rss',
-    'State Journal WV': 'https://www.wvnews.com/statejournal/search/?q=&t=article&l=25&d=&d1=&d2=&s=start_time&sd=desc&f=rss',
-    'West Virginia Public Broadcasting': 'https://www.wvpublic.org/rss.xml',
+    {"name": "Charleston Gazette-Mail", "url": "https://www.wvgazettemail.com/search/?q=&t=article&l=25&d=&d1=&d2=&s=start_time&sd=desc&c[]=news*&f=rss"},
+    {"name": "Bristol Herald Courier", "url": "https://www.heraldcourier.com/search/?q=&t=article&l=25&d=&d1=&d2=&s=start_time&sd=desc&f=rss"},
+    {"name": "Lexington Herald-Leader", "url": "https://www.kentucky.com/news/?widgetName=rssfeed&widgetContentId=712015&getXmlFeed=true"},
+    # Local & Community
+    {"name": "WYMT Mountain News", "url": "https://www.wymt.com/news/?format=rss"},
+    {"name": "State Journal WV", "url": "https://www.wvnews.com/statejournal/search/?q=&t=article&l=25&d=&d1=&d2=&s=start_time&sd=desc&f=rss"},
+    {"name": "WV Public Broadcasting", "url": "https://www.wvpublic.org/rss.xml"},
     # Environmental & Energy
-    'Inside Climate News - Appalachia': 'https://insideclimatenews.org/category/appalachia/feed/',
-    'Southern Environmental Law Center': 'https://www.southernenvironment.org/feed/',
-    # Additional Regional Sources
-    'Highlander Research': 'https://www.highlandercenter.org/feed/',
-    'West Virginia MetroNews': 'https://wvmetronews.com/feed/',
-    'Bluefield Daily Telegraph': 'https://www.bdtonline.com/search/?q=&t=article&l=25&d=&d1=&d2=&s=start_time&sd=desc&f=rss',
-}
+    {"name": "Inside Climate News - Appalachia", "url": "https://insideclimatenews.org/category/appalachia/feed/"},
+    {"name": "Southern Environmental Law Center", "url": "https://www.southernenvironment.org/feed/"},
+    # Additional
+    {"name": "Highlander Research", "url": "https://www.highlandercenter.org/feed/"},
+    {"name": "West Virginia MetroNews", "url": "https://wvmetronews.com/feed/"},
+    {"name": "Bluefield Daily Telegraph", "url": "https://www.bdtonline.com/search/?q=&t=article&l=25&d=&d1=&d2=&s=start_time&sd=desc&f=rss"},
+]
 
-def fetch_rss_feeds():
-    """Fetch articles from all RSS feeds with robust error handling"""
-    log.info(f"Fetching from {len(RSS_FEEDS)} Appalachian news sources...")
-    log.info(f"Looking for articles from the last 72 hours")
+TIME_WINDOW_HOURS = 72
+MAX_PER_SOURCE = 20
+TARGET_STORIES = 15
+MIN_STORIES_WARNING = 5
 
-    all_articles = []
-    cutoff_time = datetime.now() - timedelta(hours=72)  # 3 days
-    successful_sources = 0
+# === FETCH ARTICLES ===
+def fetch_articles() -> List[Dict[str, Any]]:
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=TIME_WINDOW_HOURS)
+    articles = []
     failed_sources = []
 
-    for source_name, feed_url in RSS_FEEDS.items():
+    for source in SOURCES:
         try:
-            log.info(f" → {source_name}...")
-            # Parse feed
-            feed = feedparser.parse(feed_url)
-
-            # Check if feed parsed successfully
-            if hasattr(feed, 'bozo') and feed.bozo:
-                log.warning(f"Parse warning for {source_name}")
+            log.info(f"Fetching {source['name']}...")
+            feed = feedparser.parse(source['url'])
             if not feed.entries:
-                log.warning(f"No entries found for {source_name}")
-                failed_sources.append(source_name)
+                log.warning(f"No entries from {source['name']}")
+                failed_sources.append(source['name'])
                 continue
 
-            articles_found = 0
-            # Get up to 20 recent articles per source
-            for entry in feed.entries[:20]:
-                try:
-                    # Get publish date
-                    pub_date = None
-                    if hasattr(entry, 'published_parsed') and entry.published_parsed:
-                        try:
-                            pub_date = datetime(*entry.published_parsed[:6])
-                        except:
-                            pass
-                    elif hasattr(entry, 'updated_parsed') and entry.updated_parsed:
-                        try:
-                            pub_date = datetime(*entry.updated_parsed[:6])
-                        except:
-                            pass
+            count = 0
+            for entry in feed.entries[:MAX_PER_SOURCE]:
+                pub_date = None
+                if hasattr(entry, "published_parsed") and entry.published_parsed:
+                    pub_date = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
+                elif hasattr(entry, "updated_parsed") and entry.updated_parsed:
+                    pub_date = datetime(*entry.updated_parsed[:6], tzinfo=timezone.utc)
+                else:
+                    try:
+                        pub_date = date_parser.parse(entry.get("published") or entry.get("updated", ""))
+                        if pub_date.tzinfo is None:
+                            pub_date = pub_date.replace(tzinfo=timezone.utc)
+                    except:
+                        pub_date = None
 
-                    # If no date found, skip this article
-                    if not pub_date:
+                if pub_date and pub_date >= cutoff:
+                    title = html.escape(entry.title) if entry.title else "No title"
+                    link = entry.link
+                    summary = html.escape(entry.summary) if hasattr(entry, "summary") and entry.summary else ""
+
+                    # Skip sports
+                    lower_title = title.lower()
+                    lower_summary = summary.lower()
+                    if any(kw in lower_title or kw in lower_summary for kw in ["game", "score", "sports", "athletics", "team", "player", "coach", "ncaa", "high school football"]):
                         continue
 
-                    # Only include recent articles
-                    if pub_date > cutoff_time:
-                        # Get summary/description
-                        summary = ''
-                        if hasattr(entry, 'summary'):
-                            summary = entry.summary
-                        elif hasattr(entry, 'description'):
-                            summary = entry.description
-                        elif hasattr(entry, 'content'):
-                            summary = entry.content[0].value if entry.content else ''
+                    articles.append({
+                        "title": title,
+                        "link": link,
+                        "summary": summary,
+                        "source": source['name'],
+                        "pub_date": pub_date.isoformat()
+                    })
+                    count += 1
 
-                        # Skip sports
-                        lower_title = entry.get('title', '').lower()
-                        lower_summary = summary.lower()
-                        sports_keywords = ['game', 'score', 'sports', 'athletics', 'team', 'player', 'coach', 'ncaa', 'football']
-                        if any(kw in lower_title or kw in lower_summary for kw in sports_keywords):
-                            continue
-
-                        article = {
-                            'title': entry.get('title', 'No title'),
-                            'summary': summary[:500],  # Limit summary length
-                            'link': entry.get('link', ''),
-                            'source': source_name,
-                            'published': pub_date
-                        }
-                        all_articles.append(article)
-                        articles_found += 1
-                except Exception as e:
-                    continue
-
-            if articles_found > 0:
-                log.info(f"{source_name}: {articles_found} articles")
-                successful_sources += 1
-            else:
-                log.warning(f"{source_name}: No recent articles")
-                failed_sources.append(source_name)
-
+            log.info(f"✓ {source['name']}: {count} articles")
         except Exception as e:
-            log.error(f"{source_name}: Error - {str(e)[:50]}")
-            failed_sources.append(source_name)
-            continue
+            log.error(f"✗ Failed {source['name']}: {e}")
+            failed_sources.append(source['name'])
 
-    # Sort by date, most recent first
-    all_articles.sort(key=lambda x: x['published'], reverse=True)
-
-    log.info(f"Total articles collected: {len(all_articles)}")
+    articles.sort(key=lambda x: x['pub_date'], reverse=True)
+    log.info(f"Total articles collected: {len(articles)}")
     if failed_sources:
         log.warning(f"Failed sources: {', '.join(failed_sources)}")
 
-    return all_articles
+    if len(articles) < MIN_STORIES_WARNING:
+        log.warning(f"Only {len(articles)} articles — below warning threshold")
 
+    return articles[:40]  # Top 40 for AI selection
 
-def create_summary_with_claude(articles):
-    """Use Claude to create an intelligent summary"""
-    log.info("Creating AI-powered digest...")
+# === AI SUMMARIZATION ===
+def generate_digest(articles: List[Dict]) -> str:
+    client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+    model = "claude-sonnet-4-20250514"
 
-    if not articles:
-        return "No recent Appalachian news articles found."
+    articles_data = ""
+    for i, a in enumerate(articles, 1):
+        articles_data += f"\n--- Article {i} ---\n"
+        articles_data += f"Title: {a['title']}\n"
+        articles_data += f"Link: {a['link']}\n"
+        articles_data += f"Source: {a['source']}\n"
+        articles_data += f"Summary: {a['summary'][:1000]}\n"
 
-    # Use top 40 most recent articles
-    articles_text = "\n\n".join([
-        f"[{article['source']}] {article['title']}\n{article['summary'][:400]}...\nLink: {article['link']}"
-        for article in articles[:40]
-    ])
+    prompt = f"""You are creating a daily news digest for Appalachian communities. Here are recent articles from trusted regional sources:
 
-    prompt = f"""
-You are creating a daily news digest for Appalachian communities. Here are recent articles from trusted regional sources:
-
-{articles_text}
+{articles_data}
 
 Create a comprehensive, well-organized daily digest email using ONLY these HTML elements:
 - <h2>Section Title</h2> for main categories
@@ -182,28 +165,28 @@ IMPORTANT: Do NOT include any sports stories. Skip all articles about sports, at
 For each story:
 1. Write a clear, engaging <h3> headline
 2. Summarize in 2-3 sentences in a <p> tag
-3. Include source and link: <p><strong>Source:</strong> <a href="link">Read more at [Source Name]</a></p>
+3. Include source and link: <p><strong>Source:</strong> <a href="link">Read more at {a['source']}</a></p>
 
 Include AT LEAST 10-15 stories covering diverse topics. Focus on stories most important to Appalachian communities. Use a warm, community-focused tone. Start directly with <h2> tags.
 """
 
     try:
-        client = Anthropic(api_key=ANTHROPIC_API_KEY)
-        message = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=4000,  # Increased for more stories
+        log.info("Sending to Claude AI...")
+        response = client.messages.create(
+            model=model,
+            max_tokens=4000,
             temperature=0.7,
             messages=[{"role": "user", "content": prompt}]
         )
-        log.info("Digest created successfully")
-        return message.content[0].text
+        html_content = response.content[0].text.strip()
+        log.info("AI digest generated.")
+        return html_content
     except Exception as e:
-        log.error(f"Error creating summary: {e}")
-        return f"Error generating digest: {str(e)}"
+        log.error(f"Claude API failed: {e}")
+        raise
 
-
-def create_html_email(summary_content, article_count):
-    """Create beautiful HTML email"""
+# === HTML EMAIL TEMPLATE ===
+def build_email(html_content: str, article_count: int) -> str:
     today = datetime.now().strftime("%B %d, %Y")
     header_style = """
         background: linear-gradient(135deg, #1e4620, #2d5016, #4a7c59);
@@ -249,157 +232,95 @@ def create_html_email(summary_content, article_count):
         border-radius: 0 0 8px 8px;
     """
 
-    return f"""
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>Appalachian Daily - {today}</title>
-    <style>
-        body {{ margin: 0; background: #f4f4f4; padding: 20px 0; }}
-        .container {{ max-width: 650px; margin: 0 auto; background: white; box-shadow: 0 4px 12px rgba(0,0,0,0.1); border-radius: 8px; overflow: hidden; }}
-        .header {{{header_style}}}
-        .body {{{body_style}}}
-        h2 {{{h2_style}}}
-        h3 {{{h3_style}}}
-        a {{{a_style}}}
-        a:hover {{{a_hover}}}
-        .footer {{{footer_style}}}
-        .mountain {{ font-size: 42px; }}
-        @media (max-width: 600px) {{ .body {{ padding: 20px; }} }}
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <div class="mountain">🏔️</div>
-            <h1 style="margin:10px 0; font-size:36px; font-weight:300;">Appalachian Daily</h1>
-            <p style="margin:5px 0; font-size:18px;">{today} • {article_count} stories</p>
+    full_html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <title>Appalachian Daily - {today}</title>
+        <style>
+            body {{ margin: 0; background: #f4f4f4; padding: 20px 0; }}
+            .container {{ max-width: 650px; margin: 0 auto; background: white; box-shadow: 0 4px 12px rgba(0,0,0,0.1); border-radius: 8px; overflow: hidden; }}
+            .header {{{header_style}}}
+            .body {{{body_style}}}
+            h2 {{{h2_style}}}
+            h3 {{{h3_style}}}
+            a {{{a_style}}}
+            a:hover {{{a_hover}}}
+            .footer {{{footer_style}}}
+            .mountain {{ font-size: 42px; }}
+            @media (max-width: 600px) {{ .body {{ padding: 20px; }} }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <div class="mountain">🏔️</div>
+                <h1 style="margin:10px 0; font-size:36px; font-weight:300;">Appalachian Daily</h1>
+                <p style="margin:5px 0; font-size:18px;">{today} • {article_count} stories</p>
+            </div>
+            <div class="body">
+                {html_content}
+            </div>
+            <div class="footer">
+                <p>Curated from 21 trusted Appalachian news sources.</p>
+                <p><a href="https://github.com/jbranx/Appalachian-News-Aggregator" style="color:#ecf0f1;">Powered by open-source automation</a></p>
+            </div>
         </div>
-        <div class="body">
-            {summary_content}
-        </div>
-        <div class="footer">
-            <p>Curated from 21 trusted Appalachian news sources.</p>
-            <p><a href="https://github.com/jbranx/Appalachian-News-Aggregator" style="color:#ecf0f1;">Powered by open-source automation</a></p>
-        </div>
-    </div>
-</body>
-</html>
-"""
+    </body>
+    </html>
+    """
+    return full_html
 
+# === SEND EMAIL ===
+def send_email(html_body: str):
+    sender = os.getenv("EMAIL_ADDRESS")
+    password = os.getenv("EMAIL_PASSWORD")
+    recipient = os.getenv("RECIPIENT_EMAIL")
 
-def send_email(subject, html_body):
-    """Send email via Mailchimp (with Gmail fallback)"""
-    log.info("📧 Sending email via Mailchimp...")
-    
-    # Try Mailchimp first
-    api_key = os.getenv("MAILCHIMP_API_KEY")
-    if api_key:
-        try:
-            import mailchimp_marketing as MailchimpMarketing
-            from mailchimp_marketing.api_client import ApiClientError
-            import hashlib
-            
-            client = MailchimpMarketing.Client()
-            client.set_config({
-                "api_key": api_key,
-                "server": api_key.split('-')[-1]  # e.g., 'us1'
-            })
-            
-            list_id = os.getenv("MAILCHIMP_LIST_ID")
-            if not list_id:
-                log.warning("⚠️ No MAILCHIMP_LIST_ID secret — skipping Mailchimp")
-            else:
-                # Add/update recipient (for testing)
-                recipient = os.getenv("RECIPIENT_EMAIL")
-                if recipient:
-                    subscriber_hash = hashlib.md5(recipient.lower().encode()).hexdigest()
-                    log.info(f"Adding subscriber: {recipient}")
-                    client.lists.add_or_update_list_member(
-                        list_id=list_id,
-                        subscriber_hash=subscriber_hash,
-                        body={"email_address": recipient, "status": "subscribed"}
-                    )
-                
-                # Create campaign
-                log.info("Creating Mailchimp campaign...")
-                today = datetime.now().strftime("%B %d, %Y")
-                campaign_subject = f"🏔️ Appalachian Daily • {today}"
-                campaign = client.campaigns.create({
-                    "type": "regular",
-                    "recipients": {"list_id": list_id},
-                    "settings": {
-                        "subject_line": campaign_subject,
-                        "from_name": "Appalachian Daily",
-                        "reply_to": os.getenv("EMAIL_ADDRESS", "noreply@appalachiandaily.com")
-                    }
-                })
-                
-                # Set content
-                client.campaigns.set_campaign_content(
-                    campaign_id=campaign["id"],
-                    body={"html": html_body}
-                )
-                
-                # Send
-                log.info("Sending Mailchimp campaign...")
-                response = client.campaigns.send(campaign_id=campaign["id"])
-                log.info(f"✅ Campaign sent! ID: {campaign['id']}")
-                return True  # Success
-        
-        except ApiClientError as error:
-            log.warning(f"⚠️ Mailchimp API error: {error.text} — falling back to Gmail")
-        except Exception as e:
-            log.warning(f"⚠️ Mailchimp send failed: {e} — falling back to Gmail")
-    
-    # Fallback to Gmail
-    log.info("📧 Falling back to Gmail SMTP...")
-    try:
-        import smtplib
-        from email.mime.text import MIMEText
-        from email.mime.multipart import MIMEMultipart
-        
-        msg = MIMEMultipart('alternative')
-        msg['Subject'] = subject
-        msg['From'] = os.getenv("EMAIL_ADDRESS")
-        msg['To'] = os.getenv("RECIPIENT_EMAIL")
-        msg.attach(MIMEText(html_body, 'html', 'utf-8'))
-        
-        with smtplib.SMTP('smtp.gmail.com', 587) as server:
-            server.starttls()
-            server.login(os.getenv("EMAIL_ADDRESS"), os.getenv("EMAIL_PASSWORD"))
-            server.send_message(msg)
-        log.info("✅ Email sent via Gmail!")
-        return True
-    except Exception as e:
-        log.error(f"❌ Gmail send failed: {e}")
-        return False
-
-
-def main():
-    """Main execution"""
-    log.info("\n" + "="*60)
-    log.info("APPALACHIAN NEWS AGGREGATOR STARTING")
-    log.info("="*60)
-
-    articles = fetch_rss_feeds()
-    if not articles:
-        log.warning("No articles found. Exiting.")
+    if not all([sender, password, recipient]):
+        log.error("Missing email credentials in GitHub Secrets")
         return
 
-    if len(articles) < 5:
-        log.warning(f"WARNING: Only {len(articles)} articles found. This is unusually low.")
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = f"🏔️ Appalachian Daily • {datetime.now().strftime('%B %d, %Y')}"
+    msg["From"] = sender
+    msg["To"] = recipient
 
-    summary = create_summary_with_claude(articles)
-    html_email = create_html_email(summary, len(articles))
-    today = datetime.now().strftime("%B %d, %Y")
-    send_email(f"Appalachian Daily - {today}", html_email)
+    part = MIMEText(html_body, "html", "utf-8")
+    msg.attach(part)
 
-    log.info("="*60)
-    log.info("DONE!")
-    log.info("="*60 + "\n")
+    try:
+        log.info("Sending email via Gmail SMTP...")
+        server = smtplib.SMTP("smtp.gmail.com", 587)
+        server.starttls()
+        server.login(sender, password)
+        server.sendmail(sender, recipient, msg.as_string())
+        server.quit()
+        log.info("Email sent successfully!")
+    except Exception as e:
+        log.error(f"Failed to send email: {e}")
 
+# === MAIN ===
+def main():
+    log.info("Starting Appalachian Daily News Aggregator")
+
+    articles = fetch_articles()
+    if len(articles) < 3:
+        log.error("Too few articles to proceed.")
+        sys.exit(1)
+
+    try:
+        digest_html = generate_digest(articles)
+    except Exception as e:
+        log.error("AI summarization failed.")
+        sys.exit(1)
+
+    story_count = digest_html.count("<h3>")
+    email_html = build_email(digest_html, story_count)
+    send_email(email_html)
+
+    log.info(f"Digest complete: {story_count} stories")
 
 if __name__ == "__main__":
     main()
