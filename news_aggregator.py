@@ -327,92 +327,30 @@ def create_html_email(summary_content, article_count):
 </body>
 </html>"""
 
-def send_email(subject, html_body):
-    """Send email via Mailchimp (with Gmail fallback)"""
-    print("📧 Sending email via Mailchimp...")
-    
-    # Try Mailchimp first
-    api_key = os.getenv("MAILCHIMP_API_KEY")
-    if api_key:
-        try:
-            import mailchimp_marketing as MailchimpMarketing
-            from mailchimp_marketing.api_client import ApiClientError
-            import hashlib
-            
-            client = MailchimpMarketing.Client()
-            client.set_config({
-                "api_key": api_key,
-                "server": api_key.split('-')[-1]  # e.g., 'us1'
-            })
-            
-            list_id = os.getenv("MAILCHIMP_LIST_ID")
-            if not list_id:
-                print("⚠️ No MAILCHIMP_LIST_ID secret — skipping Mailchimp")
-            else:
-                # Add/update recipient (for testing)
-                recipient = os.getenv("RECIPIENT_EMAIL")
-                if recipient:
-                    subscriber_hash = hashlib.md5(recipient.lower().encode()).hexdigest()
-                    print(f"Adding subscriber: {recipient}")
-                    client.lists.add_or_update_list_member(
-                        list_id=list_id,
-                        subscriber_hash=subscriber_hash,
-                        body={"email_address": recipient, "status": "subscribed"}
-                    )
-                
-                # Create campaign
-                print("Creating Mailchimp campaign...")
-                today = datetime.now().strftime("%B %d, %Y")
-                campaign_subject = f"🏔️ Appalachian Daily • {today}"
-                campaign = client.campaigns.create({
-                    "type": "regular",
-                    "recipients": {"list_id": list_id},
-                    "settings": {
-                        "subject_line": campaign_subject,
-                        "from_name": "Appalachian Daily",
-                        "reply_to": os.getenv("EMAIL_ADDRESS", "noreply@appalachiandaily.com")
-                    }
-                })
-                
-                # Set content
-                client.campaigns.set_campaign_content(
-                    campaign_id=campaign["id"],
-                    body={"html": html_body}
-                )
-                
-                # Send
-                print("Sending Mailchimp campaign...")
-                response = client.campaigns.send(campaign_id=campaign["id"])
-                print(f"✅ Campaign sent! ID: {campaign['id']}")
-                return True  # Success
-        
-        except ApiClientError as error:
-            print(f"⚠️ Mailchimp API error: {error.text} — falling back to Gmail")
-        except Exception as e:
-            print(f"⚠️ Mailchimp send failed: {e} — falling back to Gmail")
-    
-    # Fallback to Gmail (your original code, updated for os.getenv)
-    print("📧 Falling back to Gmail SMTP...")
-    try:
-        import smtplib
-        from email.mime.text import MIMEText
-        from email.mime.multipart import MIMEMultipart
-        
-        msg = MIMEMultipart('alternative')
-        msg['Subject'] = subject
-        msg['From'] = os.getenv("EMAIL_ADDRESS")
-        msg['To'] = os.getenv("RECIPIENT_EMAIL")
-        msg.attach(MIMEText(html_body, 'html', 'utf-8'))
-        
-        with smtplib.SMTP('smtp.gmail.com', 587) as server:
-            server.starttls()
-            server.login(os.getenv("EMAIL_ADDRESS"), os.getenv("EMAIL_PASSWORD"))
-            server.send_message(msg)
-        print("✅ Email sent via Gmail!")
-        return True
-    except Exception as e:
-        print(f"❌ Gmail send failed: {e}")
-        return False
+ 330: def send_email(subject, html_body):
+331:     """Send email via Gmail SMTP"""
+332:     print("📧 Sending email...")
+333:     
+334:     import smtplib
+335:     from email.mime.text import MIMEText
+336:     from email.mime.multipart import MIMEMultipart
+337:     
+338:     try:
+339:         msg = MIMEMultipart('alternative')
+340:         msg['Subject'] = subject
+341:         msg['From'] = EMAIL_ADDRESS
+342:         msg['To'] = RECIPIENT_EMAIL
+343:         msg.attach(MIMEText(html_body, 'html', 'utf-8'))
+344:         
+345:         with smtplib.SMTP('smtp.gmail.com', 587) as server:
+346:             server.starttls()
+347:             server.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
+348:             server.send_message(msg)
+349:         print("Email sent successfully!\n")
+350:         return True
+351:     except Exception as e:
+352:         print(f"Error sending email: {e}\n")
+353:         return False  
 def main():
     """Main execution"""
     print("\n" + "="*60)
