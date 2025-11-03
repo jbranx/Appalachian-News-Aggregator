@@ -2,3 +2,4 @@ requests
 anthropic
 feedparser
 python-dateutil
+mailchimp-marketing
