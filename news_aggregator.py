@@ -1,3 +1,4 @@
+
 """
 Appalachian News Aggregator
 Fetches Appalachian region news and creates an AI-powered summary email
@@ -53,13 +54,24 @@ def create_summary_with_claude(articles):
 
 {articles_text}
 
-Please create a concise, engaging summary that:
-1. Highlights the most important Appalachian region stories
-2. Provides a brief 2-3 sentence summary for each key story
-3. Groups stories by topic (Economy, Environment, Culture, Politics, etc.)
-4. Uses a friendly, informative tone
-5. Formats as clean HTML with headings and paragraphs
-6. Focuses on stories most relevant to the Appalachian region"""
+CRITICAL: You must respond with ONLY valid HTML code. Do NOT use Markdown syntax.
+
+Use these HTML tags ONLY:
+- <h2> for main section headings (like "Regional Economy", "Local Politics")
+- <h3> for individual story titles
+- <p> for all paragraph text
+- <strong> for bold emphasis
+- <br> for line breaks
+
+Do NOT use: # symbols, ** for bold, --- for dividers, or any Markdown
+
+Create a well-formatted digest that:
+1. Groups stories by topic using <h2>Topic Name</h2>
+2. For each story: <h3>Story Title</h3> followed by <p>2-3 sentence summary</p>
+3. Focuses on Appalachian region relevance
+4. Uses a warm, community-focused tone
+
+Start directly with <h2> tags, no intro text."""
     
     try:
         client = Anthropic(api_key=ANTHROPIC_API_KEY)
@@ -80,20 +92,31 @@ def create_html_email(summary_content):
 <html>
 <head>
     <style>
-        body {{ font-family: Arial, sans-serif; line-height: 1.6; }}
-        .header {{ background: linear-gradient(135deg, #2d5016, #4a7c59); color: white; padding: 30px 20px; text-align: center; }}
-        .content {{ padding: 30px 20px; }}
-        .footer {{ background: #f5f5f5; padding: 20px; text-align: center; }}
+        body {{ font-family: Georgia, serif; line-height: 1.8; color: #333; background: #f9f9f9; }}
+        .container {{ max-width: 700px; margin: 0 auto; background: white; }}
+        .header {{ background: linear-gradient(135deg, #2d5016, #4a7c59); color: white; padding: 40px 30px; text-align: center; }}
+        .header h1 {{ margin: 0; font-size: 32px; font-weight: normal; }}
+        .header p {{ margin: 10px 0 0 0; font-size: 16px; opacity: 0.9; }}
+        .content {{ padding: 40px 30px; }}
+        .content h2 {{ color: #2d5016; border-bottom: 2px solid #4a7c59; padding-bottom: 10px; margin-top: 30px; }}
+        .content h3 {{ color: #333; margin-top: 20px; margin-bottom: 10px; }}
+        .content p {{ margin: 10px 0; }}
+        .footer {{ background: #f5f5f5; padding: 30px; text-align: center; color: #666; font-size: 14px; }}
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>Appalachian News Daily Digest</h1>
-        <p>{today}</p>
-    </div>
-    <div class="content">{summary_content}</div>
-    <div class="footer">
-        <p>Powered by AI</p>
+    <div class="container">
+        <div class="header">
+            <h1>🏔️ Appalachian News Daily</h1>
+            <p>{today}</p>
+        </div>
+        <div class="content">
+            {summary_content}
+        </div>
+        <div class="footer">
+            <p>Your daily digest of Appalachian region news</p>
+            <p>Powered by AI | Delivered with 💚</p>
+        </div>
     </div>
 </body>
 </html>"""
@@ -126,6 +149,7 @@ def main():
     print("APPALACHIAN NEWS AGGREGATOR STARTING")
     articles = fetch_news()
     if not articles:
+        print("No articles found")
         return
     summary = create_summary_with_claude(articles)
     html_email = create_html_email(summary)
