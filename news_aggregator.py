@@ -165,7 +165,7 @@ IMPORTANT: Do NOT include any sports stories. Skip all articles about sports, at
 For each story:
 1. Write a clear, engaging <h3> headline
 2. Summarize in 2-3 sentences in a <p> tag
-3. Include source and link: <p><strong>Source:</strong> <a href="link">Read more at {a['source']}</a></p>
+3. Include source and link: <p><strong>Source:</strong> <a href="{a['link']}">Read more at {a['source']}</a></p>
 
 Include AT LEAST 10-15 stories covering diverse topics. Focus on stories most important to Appalachian communities. Use a warm, community-focused tone. Start directly with <h2> tags.
 """
@@ -188,88 +188,54 @@ Include AT LEAST 10-15 stories covering diverse topics. Focus on stories most im
 # === HTML EMAIL TEMPLATE ===
 def build_email(html_content: str, article_count: int) -> str:
     today = datetime.now().strftime("%B %d, %Y")
-    header_style = """
-        background: linear-gradient(135deg, #1e4620, #2d5016, #4a7c59);
-        color: white;
-        padding: 30px;
-        text-align: center;
-        font-family: Georgia, serif;
-        border-radius: 8px 8px 0 0;
-    """
-    body_style = """
-        background: white;
-        padding: 40px 35px;
-        font-family: Georgia, serif;
-        line-height: 1.7;
-        color: #2c3e50;
-        font-size: 16px;
-    """
-    h2_style = """
-        color: #2d5016;
-        font-size: 24px;
-        font-weight: 600;
-        border-left: 5px solid #4a7c59;
-        padding-left: 15px;
-        margin-top: 35px;
-    """
-    h3_style = """
-        color: #1e4620;
-        font-size: 19px;
-        margin: 25px 0 10px 0;
-    """
-    a_style = """
-        color: #2d5016;
-        text-decoration: none;
-    """
-    a_hover = "text-decoration: underline;"
+    full_html = f'''<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Appalachian Daily - {today}</title>
+    <style>
+        body {{ margin: 0; background: #f4f4f4; padding: 20px 0; font-family: Georgia, serif; }}
+        .container {{ max-width: 650px; margin: 0 auto; background: white; box-shadow: 0 4px 12px rgba(0,0,0,0.1); border-radius: 8px; overflow: hidden; }}
+        .header {{ background: linear-gradient(135deg, #1e4620, #2d5016, #4a7c59); color: white; padding: 30px; text-align: center; }}
+        .mountain {{ font-size: 42px; }}
+        h1 {{ margin: 10px 0; font-size: 36px; font-weight: 300; }}
+        .subtitle {{ margin: 5px 0; font-size: 18px; opacity: 0.9; }}
+        .body {{ background: white; padding: 40px 35px; color: #2c3e50; line-height: 1.7; font-size: 16px; }}
+        h2 {{ color: #2d5016; font-size: 24px; font-weight: 600; border-left: 5px solid #4a7c59; padding-left: 15px; margin: 35px 0 20px 0; }}
+        h3 {{ color: #1e4620; font-size: 19px; margin: 25px 0 10px 0; }}
+        p {{ margin: 10px 0; }}
+        a {{ color: #2d5016; text-decoration: none; }}
+        a:hover {{ text-decoration: underline; }}
+        .footer {{ background: #34495e; color: #ecf0f1; padding: 30px; text-align: center; font-size: 14px; }}
+        .footer a {{ color: #ecf0f1; }}
+        .subscribe-btn {{ background: #2d5016; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: 600; font-size: 16px; display: inline-block; margin: 10px 0; }}
+        .subscribe-btn:hover {{ background: #1e4620; }}
+        @media (max-width: 600px) {{ .body {{ padding: 20px; }} }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="mountain">🏔️</div>
+            <h1>Appalachian Daily</h1>
+            <p class="subtitle">{today} • {article_count} stories</p>
+        </div>
+        <div class="body">
+            {html_content}
+        </div>
+        <div class="footer">
+            <p>Curated from 21 trusted Appalachian news sources.</p>
+            <p style="text-align: center; margin: 20px 0;">
+                <a class="subscribe-btn" href="https://jbranx.github.io/Appalachian-News-Aggregator">Subscribe for Daily Updates</a>
+            </p>
+            <p>Appalachian Daily is a news aggregator created by Jim Branscome. You can provide him feedback at <a href="mailto:jbranscome@gmail.com">jbranscome@gmail.com</a>.</p>
+            <p><a href="https://github.com/jbranx/Appalachian-News-Aggregator">Powered by open-source automation</a></p>
+        </div>
+    </div>
+</body>
+</html>'''
+    return full_html
 
-    footer_style = """
-        background: #34495e;
-        color: #ecf0f1;
-        padding: 30px;
-        text-align: center;
-        font-size: 14px;
-        border-radius: 0 0 8px 8px;
-    """
-
-    full_html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="UTF-8">
-        <title>Appalachian Daily - {today}</title>
-        <style>
-            body {{ margin: 0; background: #f4f4f4; padding: 20px 0; }}
-            .container {{ max-width: 650px; margin: 0 auto; background: white; box-shadow: 0 4px 12px rgba(0,0,0,0.1); border-radius: 8px; overflow: hidden; }}
-            .header {{{header_style}}}
-            .body {{{body_style}}}
-            h2 {{{h2_style}}}
-            h3 {{{h3_style}}}
-            a {{{a_style}}}
-            a:hover {{{a_hover}}}
-            .footer {{{footer_style}}}
-            .mountain {{ font-size: 42px; }}
-            @media (max-width: 600px) {{ .body {{ padding: 20px; }} }}
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <div class="header">
-                <div class="mountain">🏔️</div>
-                <h1 style="margin:10px 0; font-size:36px; font-weight:300;">Appalachian Daily</h1>
-                <p style="margin:5px 0; font-size:18px;">{today} • {article_count} stories</p>
-            </div>
-            <div class="body">
-                {html_content}
-            </div>
-            <div class="footer">
-    <p>Curated from 21 trusted Appalachian news sources.</p>
-    <p style="text-align: center; margin: 20px 0;">
-        <a href="https://jbranx.github.io/Appalachian-News-Aggregator" style="background: #2d5016; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: 600; font-size: 16px;">Subscribe for Daily Updates</a>
-    </p>
-    <p>Appalachian Daily is a news aggregator created by Jim Branscome. You can provide him feedback at <a href="mailto:jbranscome@gmail.com" style="color: #ecf0f1;">jbranscome@gmail.com</a>.</p>
-    <p><a href="https://github.com/jbranx/Appalachian-News-Aggregator" style="color:#ecf0f1;">Powered by open-source automation</a></p>
-</div>
 # === SEND EMAIL ===
 def send_email(html_body: str):
     sender = os.getenv("EMAIL_ADDRESS")
