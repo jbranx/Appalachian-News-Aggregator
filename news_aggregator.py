@@ -1,6 +1,6 @@
 """
-Daily News Aggregator
-Fetches top news stories and creates an AI-powered summary email
+Appalachian News Aggregator
+Fetches news stories from the Appalachian region and creates an AI-powered summary email
 """
 
 import os
@@ -15,38 +15,55 @@ RECIPIENT_EMAIL = os.environ.get('RECIPIENT_EMAIL')
 NEWS_API_KEY = os.environ.get('NEWS_API_KEY')
 
 def fetch_news():
-    print("Fetching news...")
-    params = {'country': 'us', 'pageSize': 10, 'apiKey': NEWS_API_KEY}
+    """Fetch news stories from Appalachian region"""
+    print("Fetching Appalachian news...")
+    
+    params = {
+        'q': 'Appalachia OR Kentucky OR Tennessee OR "West Virginia" OR Virginia OR "North Carolina" OR Pennsylvania OR coal OR mining OR rural',
+        'language': 'en',
+        'sortBy': 'publishedAt',
+        'pageSize': 20,
+        'apiKey': NEWS_API_KEY
+    }
+    
     try:
-        response = requests.get("https://newsapi.org/v2/top-headlines", params=params, timeout=10)
+        response = requests.get(
+            "https://newsapi.org/v2/everything",
+            params=params,
+            timeout=10
+        )
         response.raise_for_status()
         articles = response.json().get('articles', [])
-        print(f"Found {len(articles)} articles")
+        print(f"Found {len(articles)} Appalachian articles")
         return articles
     except Exception as e:
         print(f"Error fetching news: {e}")
         return []
 
 def create_summary_with_claude(articles):
+    """Use Claude AI to create a summary"""
     print("Creating AI summary...")
+    
     if not articles:
-        return "<p>No news available today.</p>"
+        return "<p>No Appalachian news available today.</p>"
     
     articles_text = "\n\n".join([
         f"Title: {article.get('title', 'No title')}\nDescription: {article.get('description', 'No description')}\nSource: {article.get('source', {}).get('name', 'Unknown')}"
-        for article in articles[:10]
+        for article in articles[:15]
     ])
     
-    prompt = f"""Create a daily digest email from these top news stories:
+    prompt = f"""Create a daily digest email from these Appalachian region news stories:
 
 {articles_text}
 
 Please create a concise, engaging summary that:
-1. Highlights the 5 most important stories
-2. Provides a brief 2-3 sentence summary for each
-3. Groups stories by topic
-4. Uses a friendly tone
-5. Formats as clean HTML"""
+1. Focuses on stories most relevant to the Appalachian region (Kentucky, Tennessee, West Virginia, Virginia, North Carolina, Pennsylvania)
+2. Highlights 5-7 of the most important stories
+3. Provides a brief 2-3 sentence summary for each
+4. Groups stories by topic (Economy, Environment, Politics, Community, etc.)
+5. Uses a friendly, informative tone
+6. Formats as clean HTML with headings and paragraphs
+7. Emphasizes stories about coal, mining, rural communities, economic development, and regional issues"""
     
     try:
         client = Anthropic(api_key=ANTHROPIC_API_KEY)
@@ -62,30 +79,33 @@ Please create a concise, engaging summary that:
         return f"<p>Error: {str(e)}</p>"
 
 def create_html_email(summary_content):
+    """Wrap summary in HTML email template"""
     today = datetime.now().strftime("%B %d, %Y")
     return f"""<!DOCTYPE html>
 <html>
 <head>
     <style>
         body {{ font-family: Arial, sans-serif; line-height: 1.6; }}
-        .header {{ background: linear-gradient(135deg, #667eea, #764ba2); color: white; padding: 30px 20px; text-align: center; }}
+        .header {{ background: linear-gradient(135deg, #2c5282, #1a365d);
+                  color: white; padding: 30px 20px; text-align: center; }}
         .content {{ padding: 30px 20px; }}
         .footer {{ background: #f5f5f5; padding: 20px; text-align: center; }}
     </style>
 </head>
 <body>
     <div class="header">
-        <h1>Daily News Digest</h1>
+        <h1>Appalachian News Daily Update</h1>
         <p>{today}</p>
     </div>
     <div class="content">{summary_content}</div>
     <div class="footer">
-        <p>Powered by AI</p>
+        <p>Powered by AI • Focused on Appalachia</p>
     </div>
 </body>
 </html>"""
 
 def send_email(subject, html_body):
+    """Send email using Gmail SMTP"""
     print("Sending email...")
     import smtplib
     from email.mime.text import MIMEText
@@ -110,14 +130,17 @@ def send_email(subject, html_body):
         return False
 
 def main():
-    print("DAILY NEWS AGGREGATOR STARTING")
+    """Main function"""
+    print("APPALACHIAN NEWS AGGREGATOR STARTING")
     articles = fetch_news()
     if not articles:
         return
     summary = create_summary_with_claude(articles)
     html_email = create_html_email(summary)
     today = datetime.now().strftime("%B %d, %Y")
-    send_email(f"Daily News - {today}", html_email)
+    send_email(f"Appalachian News - {today}", html_email)
 
 if __name__ == "__main__":
     main()
+
+Click "Commit changes"
