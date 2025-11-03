@@ -8,7 +8,6 @@ import requests
 from datetime import datetime
 from anthropic import Anthropic
 
-# Get environment variables
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')
 EMAIL_ADDRESS = os.environ.get('EMAIL_ADDRESS')
 EMAIL_PASSWORD = os.environ.get('EMAIL_PASSWORD')
@@ -16,40 +15,25 @@ RECIPIENT_EMAIL = os.environ.get('RECIPIENT_EMAIL')
 NEWS_API_KEY = os.environ.get('NEWS_API_KEY')
 
 def fetch_news():
-    """Fetch top news stories from NewsAPI"""
-    print("📡 Fetching news...")
-    
-    params = {
-        'country': 'us',
-        'pageSize': 10,
-        'apiKey': NEWS_API_KEY
-    }
-    
+    print("Fetching news...")
+    params = {'country': 'us', 'pageSize': 10, 'apiKey': NEWS_API_KEY}
     try:
-        response = requests.get(
-            "https://newsapi.org/v2/top-headlines",
-            params=params,
-            timeout=10
-        )
+        response = requests.get("https://newsapi.org/v2/top-headlines", params=params, timeout=10)
         response.raise_for_status()
         articles = response.json().get('articles', [])
-        print(f"✅ Found {len(articles)} articles")
+        print(f"Found {len(articles)} articles")
         return articles
     except Exception as e:
-        print(f"❌ Error fetching news: {e}")
+        print(f"Error fetching news: {e}")
         return []
 
 def create_summary_with_claude(articles):
-    """Use Claude AI to create a summary"""
-    print("🤖 Creating AI summary...")
-    
+    print("Creating AI summary...")
     if not articles:
         return "<p>No news available today.</p>"
     
     articles_text = "\n\n".join([
-        f"Title: {article.get('title', 'No title')}\n"
-        f"Description: {article.get('description', 'No description')}\n"
-        f"Source: {article.get('source', {}).get('name', 'Unknown')}"
+        f"Title: {article.get('title', 'No title')}\nDescription: {article.get('description', 'No description')}\nSource: {article.get('source', {}).get('name', 'Unknown')}"
         for article in articles[:10]
     ])
     
@@ -60,9 +44,9 @@ def create_summary_with_claude(articles):
 Please create a concise, engaging summary that:
 1. Highlights the 5 most important stories
 2. Provides a brief 2-3 sentence summary for each
-3. Groups stories by topic (Politics, Tech, Business, etc.)
-4. Uses a friendly, informative tone
-5. Formats as clean HTML with headings and paragraphs"""
+3. Groups stories by topic
+4. Uses a friendly tone
+5. Formats as clean HTML"""
     
     try:
         client = Anthropic(api_key=ANTHROPIC_API_KEY)
@@ -71,42 +55,38 @@ Please create a concise, engaging summary that:
             max_tokens=2000,
             messages=[{"role": "user", "content": prompt}]
         )
-        print("✅ Summary created")
+        print("Summary created")
         return message.content[0].text
     except Exception as e:
-        print(f"❌ Error creating summary: {e}")
+        print(f"Error creating summary: {e}")
         return f"<p>Error: {str(e)}</p>"
 
 def create_html_email(summary_content):
-    """Wrap summary in HTML email template"""
     today = datetime.now().strftime("%B %d, %Y")
     return f"""<!DOCTYPE html>
 <html>
 <head>
     <style>
         body {{ font-family: Arial, sans-serif; line-height: 1.6; }}
-        .header {{ background: linear-gradient(135deg, #667eea, #764ba2);
-                  color: white; padding: 30px 20px; text-align: center; }}
+        .header {{ background: linear-gradient(135deg, #667eea, #764ba2); color: white; padding: 30px 20px; text-align: center; }}
         .content {{ padding: 30px 20px; }}
         .footer {{ background: #f5f5f5; padding: 20px; text-align: center; }}
     </style>
 </head>
 <body>
     <div class="header">
-        <h1>📰 Daily News Digest</h1>
+        <h1>Daily News Digest</h1>
         <p>{today}</p>
     </div>
     <div class="content">{summary_content}</div>
     <div class="footer">
-        <p>Powered by AI • Generated on {datetime.now().strftime("%Y-%m-%d")}</p>
+        <p>Powered by AI</p>
     </div>
 </body>
 </html>"""
 
 def send_email(subject, html_body):
-    """Send email using Gmail SMTP"""
-    print("📧 Sending email...")
-    
+    print("Sending email...")
     import smtplib
     from email.mime.text import MIMEText
     from email.mime.multipart import MIMEMultipart
@@ -123,30 +103,21 @@ def send_email(subject, html_body):
             server.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
             server.send_message(msg)
         
-        print("✅ Email sent successfully!")
+        print("Email sent successfully!")
         return True
     except Exception as e:
-        print(f"❌ Error sending email: {e}")
+        print(f"Error sending email: {e}")
         return False
 
 def main():
-    """Main function"""
-    print("\n" + "="*50)
-    print("🚀 DAILY NEWS AGGREGATOR STARTING")
-    print("="*50 + "\n")
-    
+    print("DAILY NEWS AGGREGATOR STARTING")
     articles = fetch_news()
     if not articles:
         return
-    
     summary = create_summary_with_claude(articles)
     html_email = create_html_email(summary)
-    
     today = datetime.now().strftime("%B %d, %Y")
-    send_email(f"📰 Daily News - {today}", html_email)
-    if __name__ == "__main__":
-    main()
+    send_email(f"Daily News - {today}", html_email)
 
 if __name__ == "__main__":
     main()
-
