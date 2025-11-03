@@ -23,21 +23,11 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
     
-    - name: Debug - List files
-      run: |
-        echo "Current directory:"
-        pwd
-        echo "Files in current directory:"
-        ls -la
-        echo "Looking for news_aggregator.py:"
-        find . -name "news_aggregator.py"
-    
     - name: Run news aggregator
       env:
-        env:
-  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-  NEWS_API_KEY: ${{ secrets.NEWS_API_KEY }}
-  EMAIL_ADDRESS: ${{ secrets.EMAIL_ADDRESS }}
-  EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
-  RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        NEWS_API_KEY: ${{ secrets.NEWS_API_KEY }}
+        EMAIL_ADDRESS: ${{ secrets.EMAIL_ADDRESS }}
+        EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+        RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
       run: python news_aggregator.py
