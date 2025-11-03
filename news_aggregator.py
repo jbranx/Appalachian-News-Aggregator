@@ -144,6 +144,8 @@ def main():
     
     today = datetime.now().strftime("%B %d, %Y")
     send_email(f"📰 Daily News - {today}", html_email)
+    if __name__ == "__main__":
+    main()
 
 if __name__ == "__main__":
     main()
