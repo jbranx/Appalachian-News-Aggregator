@@ -263,15 +263,13 @@ def build_email(html_content: str, article_count: int) -> str:
                 {html_content}
             </div>
             <div class="footer">
-                <p>Curated from 21 trusted Appalachian news sources.</p>
-                <p><a href="https://github.com/jbranx/Appalachian-News-Aggregator" style="color:#ecf0f1;">Powered by open-source automation</a></p>
-            </div>
-        </div>
-    </body>
-    </html>
-    """
-    return full_html
-
+    <p>Curated from 21 trusted Appalachian news sources.</p>
+    <p style="text-align: center; margin: 20px 0;">
+        <a href="https://jbranx.github.io/Appalachian-News-Aggregator" style="background: #2d5016; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: 600; font-size: 16px;">Subscribe for Daily Updates</a>
+    </p>
+    <p>Appalachian Daily is a news aggregator created by Jim Branscome. You can provide him feedback at <a href="mailto:jbranscome@gmail.com" style="color: #ecf0f1;">jbranscome@gmail.com</a>.</p>
+    <p><a href="https://github.com/jbranx/Appalachian-News-Aggregator" style="color:#ecf0f1;">Powered by open-source automation</a></p>
+</div>
 # === SEND EMAIL ===
 def send_email(html_body: str):
     sender = os.getenv("EMAIL_ADDRESS")
