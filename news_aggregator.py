@@ -148,8 +148,3 @@ def main():
 if __name__ == "__main__":
     main()
 
-Click "Commit changes"
-Go to Actions → Run workflow
-
-
-Create that news_aggregator.py file now! That's the missing piece! 🚀RetryClaude can make mistakes. Please double-check responses.
