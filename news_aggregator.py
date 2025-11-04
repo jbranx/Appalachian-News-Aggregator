@@ -230,7 +230,6 @@ def build_email(html_content: str, article_count: int) -> str:
             </p>
             <p>Appalachian Daily is a news aggregator created by Jim Branscome. You can provide him feedback at <a href="mailto:jbranscome@gmail.com">jbranscome@gmail.com</a>.</p>
             <p><a href="https://github.com/jbranx/Appalachian-News-Aggregator">Powered by open-source automation</a></p>
-            <p style="font-size: 12px; color: #bdc3c7;"><a href="#" style="color: #ecf0f1;">Unsubscribe</a> | <a href="#" style="color: #ecf0f1;">Manage preferences</a></p>
         </div>
     </div>
 </body>
@@ -239,10 +238,11 @@ def build_email(html_content: str, article_count: int) -> str:
 
 # === SEND EMAIL ===
 def send_email(html_body: str):
-    # Try Mailchimp first (for unsubscribe)
+    # Try Mailchimp first for unsubscribe
     api_key = os.getenv("MAILCHIMP_API_KEY")
     if api_key:
         try:
+            log.info("Trying Mailchimp for unsubscribe...")
             client = MailchimpMarketing.Client()
             client.set_config({
                 "api_key": api_key,
@@ -285,7 +285,7 @@ def send_email(html_body: str):
                 log.info("Sending Mailchimp campaign...")
                 response = client.campaigns.send(campaign_id=campaign["id"])
                 log.info(f"✅ Campaign sent via Mailchimp! ID: {campaign['id']} (unsubscribe auto-added)")
-                return
+                return True
             else:
                 log.warning("No MAILCHIMP_LIST_ID — falling back to Gmail")
         except Exception as e:
@@ -299,7 +299,7 @@ def send_email(html_body: str):
 
     if not all([sender, password, recipient]):
         log.error("Missing Gmail credentials — cannot send")
-        return
+        return False
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = f"🏔️ Appalachian Daily • {datetime.now().strftime('%B %d, %Y')}"
@@ -316,8 +316,10 @@ def send_email(html_body: str):
         server.sendmail(sender, recipient, msg.as_string())
         server.quit()
         log.info("✅ Email sent via Gmail!")
+        return True
     except Exception as e:
         log.error(f"Gmail send failed: {e}")
+        return False
 
 # === MAIN ===
 def main():
@@ -336,9 +338,12 @@ def main():
 
     story_count = digest_html.count("<h3>")
     email_html = build_email(digest_html, story_count)
-    send_email(email_html)
+    success = send_email(email_html)
 
-    log.info(f"Digest complete: {story_count} stories")
+    if success:
+        log.info(f"Digest complete: {story_count} stories sent!")
+    else:
+        log.error("Send failed — check secrets and logs.")
 
 if __name__ == "__main__":
     main()
