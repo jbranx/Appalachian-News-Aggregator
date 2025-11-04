@@ -57,7 +57,6 @@ SOURCES = [
 
 TIME_WINDOW_HOURS = 72
 MAX_PER_SOURCE = 20
-TARGET_STORIES = 15
 MIN_STORIES_WARNING = 5
 
 # === FETCH ARTICLES ===
@@ -230,6 +229,7 @@ def build_email(html_content: str, article_count: int) -> str:
             </p>
             <p>Appalachian Daily is a news aggregator created by Jim Branscome. You can provide him feedback at <a href="mailto:jbranscome@gmail.com">jbranscome@gmail.com</a>.</p>
             <p><a href="https://github.com/jbranx/Appalachian-News-Aggregator">Powered by open-source automation</a></p>
+            <p style="font-size: 12px; color: #bdc3c7;">*|LIST:UNSUB|*</p>  <!-- Mailchimp unsubscribe merge tag -->
         </div>
     </div>
 </body>
@@ -238,11 +238,9 @@ def build_email(html_content: str, article_count: int) -> str:
 
 # === SEND EMAIL ===
 def send_email(html_body: str):
-    # Try Mailchimp first for unsubscribe
     api_key = os.getenv("MAILCHIMP_API_KEY")
     if api_key:
         try:
-            log.info("Trying Mailchimp for unsubscribe...")
             client = MailchimpMarketing.Client()
             client.set_config({
                 "api_key": api_key,
@@ -251,18 +249,18 @@ def send_email(html_body: str):
 
             list_id = os.getenv("MAILCHIMP_LIST_ID")
             if list_id:
-                # Add/Update Subscriber
+                # Add/update recipient
                 recipient = os.getenv("RECIPIENT_EMAIL")
                 if recipient:
                     subscriber_hash = hashlib.md5(recipient.lower().encode()).hexdigest()
-                    log.info(f"Adding subscriber to Mailchimp: {recipient}")
+                    log.info(f"Adding subscriber: {recipient}")
                     client.lists.add_or_update_list_member(
                         list_id=list_id,
                         subscriber_hash=subscriber_hash,
                         body={"email_address": recipient, "status": "subscribed"}
                     )
 
-                # Create Campaign
+                # Create campaign
                 log.info("Creating Mailchimp campaign...")
                 today = datetime.now().strftime("%B %d, %Y")
                 campaign = client.campaigns.create({
@@ -275,7 +273,7 @@ def send_email(html_body: str):
                     }
                 })
 
-                # Set HTML Content
+                # Set content
                 client.campaigns.set_campaign_content(
                     campaign_id=campaign["id"],
                     body={"html": html_body}
@@ -284,12 +282,10 @@ def send_email(html_body: str):
                 # Send
                 log.info("Sending Mailchimp campaign...")
                 response = client.campaigns.send(campaign_id=campaign["id"])
-                log.info(f"✅ Campaign sent via Mailchimp! ID: {campaign['id']} (unsubscribe auto-added)")
+                log.info(f"✅ Campaign sent! ID: {campaign['id']} (unsubscribe auto-added)")
                 return True
-            else:
-                log.warning("No MAILCHIMP_LIST_ID — falling back to Gmail")
         except Exception as e:
-            log.warning(f"Mailchimp failed: {e} — falling back to Gmail")
+            log.error(f"Mailchimp failed: {e} — falling back to Gmail")
 
     # Fallback to Gmail
     log.info("Sending via Gmail SMTP...")
@@ -347,3 +343,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+Update [Appalachian News] for auto-send and unsubscribe
+    
