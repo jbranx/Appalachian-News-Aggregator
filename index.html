@@ -14,10 +14,7 @@
     .content { margin: 30px 0; }
     .content p { font-size: 18px; margin: 15px 0; }
     .form-container { margin: 30px 0; }
-    #mc_embed_signup { background: transparent; clear: left; font: 16px Georgia, serif; }
-    #mc_embed_signup input.email { width: 100%; max-width: 400px; padding: 14px; margin: 10px 0; border: 2px solid #4a7c59; border-radius: 8px; font-size: 16px; }
-    #mc-embedded-subscribe { background: #2d5016; color: white; border: none; padding: 14px 30px; font-size: 16px; border-radius: 8px; cursor: pointer; margin-top: 10px; font-weight: 600; }
-    #mc-embedded-subscribe:hover { background: #1e4620; }
+    iframe { width: 100%; height: 400px; border: none; } /* Adjust height as needed */
     .footer { margin-top: 50px; font-size: 14px; color: #7f8c8d; }
     .footer a { color: #4a7c59; text-decoration: none; }
     .footer a:hover { text-decoration: underline; }
@@ -28,7 +25,7 @@
     <div class="header">
       <div class="mountain">🏔️</div>
       <h1>Appalachian Daily</h1>
-      <p class="subtitle">Appalachian News Daily Update</p>
+      <p class="subtitle">Daily news from the heart of the mountains</p>
     </div>
 
     <div class="content">
@@ -38,12 +35,8 @@
     </div>
 
     <div class="form-container">
-      <!-- Basic form placeholder - Replace with Mailchimp embed code for real signup -->
-      <form action="https://formspree.io/f/yourformid" method="POST" style="max-width: 400px; margin: 0 auto;">
-        <input type="email" name="email" placeholder="your@email.com" required style="width: 100%; padding: 14px; margin: 10px 0; border: 2px solid #4a7c59; border-radius: 8px; font-size: 16px;">
-        <button type="submit" style="background: #2d5016; color: white; border: none; padding: 14px 30px; font-size: 16px; border-radius: 8px; cursor: pointer; width: 100%; font-weight: 600;">Send Me the News</button>
-      </form>
-      <p style="font-size: 12px; margin-top: 10px;">(Test form - Update with Mailchimp for real subs)</p>
+      <!-- Embedded Mailchimp signup form via iframe -->
+      <iframe src="http://eepurl.com/jq4FvA" title="Appalachian Daily Signup" style="width: 100%; height: 400px; border: none;"></iframe>
     </div>
 
     <div class="footer">
