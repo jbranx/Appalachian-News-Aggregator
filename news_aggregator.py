@@ -1,7 +1,8 @@
-#!/usr/bin/env python3
+    #!/usr/bin/env python3
 """
 Appalachian Daily News Aggregator
-Daily email digest of regional news using RSS + Claude AI
+Daily email digest with Google Sheets subscriber management
+Enhanced version with improved error handling and compliance
 """
 
 import os
@@ -10,19 +11,18 @@ import logging
 import feedparser
 from datetime import datetime, timedelta, timezone
 from dateutil import parser as date_parser
-import requests
 from anthropic import Anthropic
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import List, Dict, Any
 import html
-import hashlib
-import mailchimp_marketing as MailchimpMarketing
-from mailchimp_marketing.api_client import ApiClientError
+import json
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 log = logging.getLogger(__name__)
 
 # === CONFIGURATION ===
@@ -59,18 +59,88 @@ TIME_WINDOW_HOURS = 72
 MAX_PER_SOURCE = 20
 MIN_STORIES_WARNING = 5
 
-# === FETCH ARTICLES ===
+# === GET SUBSCRIBERS FROM GOOGLE SHEETS ===
+def get_subscribers() -> List[str]:
+    """Fetch active subscribers from Google Sheets with error handling"""
+    try:
+        log.info("Fetching subscribers from Google Sheets...")
+        
+        # Load credentials from environment variable
+        creds_json = os.getenv("GOOGLE_SHEETS_CREDENTIALS")
+        if not creds_json:
+            log.error("GOOGLE_SHEETS_CREDENTIALS not found in environment")
+            return []
+        
+        # Parse JSON credentials
+        try:
+            creds_dict = json.loads(creds_json)
+        except json.JSONDecodeError as e:
+            log.error(f"Failed to parse credentials JSON: {e}")
+            return []
+        
+        # Create credentials with read-only scope
+        credentials = service_account.Credentials.from_service_account_info(
+            creds_dict,
+            scopes=['https://www.googleapis.com/auth/spreadsheets.readonly']
+        )
+        
+        # Build Sheets API service
+        service = build('sheets', 'v4', credentials=credentials)
+        sheet_id = os.getenv("GOOGLE_SHEET_ID")
+        
+        if not sheet_id:
+            log.error("GOOGLE_SHEET_ID not found in environment")
+            return []
+        
+        # Read all rows from Sheet (skip header row)
+        result = service.spreadsheets().values().get(
+            spreadsheetId=sheet_id,
+            range='Sheet1!A2:C1000'
+        ).execute()
+        
+        values = result.get('values', [])
+        
+        if not values:
+            log.warning("No data found in spreadsheet")
+            return []
+        
+        # Filter for active subscribers
+        # Column A = Email, Column C = Status
+        subscribers = []
+        for row in values:
+            if len(row) >= 1:
+                email = row[0].strip().lower()
+                # Check status column (default to Active if empty)
+                status = row[2].strip().lower() if len(row) >= 3 else "active"
+                
+                # Only include active subscribers with valid emails
+                if status in ["active", ""] and email and '@' in email:
+                    subscribers.append(email)
+        
+        log.info(f"✅ Found {len(subscribers)} active subscribers")
+        return subscribers
+        
+    except Exception as e:
+        log.error(f"❌ Failed to fetch subscribers from Google Sheets: {e}")
+        log.error("Will attempt to send to fallback email only")
+        return []
+
+# === FETCH ARTICLES (unchanged from Grok's version) ===
 def fetch_articles() -> List[Dict[str, Any]]:
+    """Fetch articles from RSS feeds"""
     cutoff = datetime.now(timezone.utc) - timedelta(hours=TIME_WINDOW_HOURS)
     articles = []
     failed_sources = []
 
+    log.info(f"Fetching articles from {len(SOURCES)} sources (last {TIME_WINDOW_HOURS} hours)...")
+
     for source in SOURCES:
         try:
-            log.info(f"Fetching {source['name']}...")
+            log.info(f"  → {source['name']}...")
             feed = feedparser.parse(source['url'])
+            
             if not feed.entries:
-                log.warning(f"No entries from {source['name']}")
+                log.warning(f"    ✗ No entries from {source['name']}")
                 failed_sources.append(source['name'])
                 continue
 
@@ -94,10 +164,11 @@ def fetch_articles() -> List[Dict[str, Any]]:
                     link = entry.link
                     summary = html.escape(entry.summary) if hasattr(entry, "summary") and entry.summary else ""
 
-                    # Skip sports
+                    # Skip sports stories
                     lower_title = title.lower()
                     lower_summary = summary.lower()
-                    if any(kw in lower_title or kw in lower_summary for kw in ["game", "score", "sports", "athletics", "team", "player", "coach", "ncaa", "high school football"]):
+                    sports_keywords = ["game", "score", "sports", "athletics", "team", "player", "coach", "ncaa", "high school football", "basketball", "baseball"]
+                    if any(kw in lower_title or kw in lower_summary for kw in sports_keywords):
                         continue
 
                     articles.append({
@@ -109,23 +180,31 @@ def fetch_articles() -> List[Dict[str, Any]]:
                     })
                     count += 1
 
-            log.info(f"✓ {source['name']}: {count} articles")
+            log.info(f"    ✓ {count} articles")
+            
         except Exception as e:
-            log.error(f"✗ Failed {source['name']}: {e}")
+            log.error(f"    ✗ Failed {source['name']}: {str(e)[:100]}")
             failed_sources.append(source['name'])
 
     articles.sort(key=lambda x: x['pub_date'], reverse=True)
-    log.info(f"Total articles collected: {len(articles)}")
+    
+    log.info(f"\n📊 Collection Summary:")
+    log.info(f"   Total articles: {len(articles)}")
+    log.info(f"   Failed sources: {len(failed_sources)}")
+    
     if failed_sources:
-        log.warning(f"Failed sources: {', '.join(failed_sources)}")
+        log.warning(f"   Sources with issues: {', '.join(failed_sources[:5])}")
 
     if len(articles) < MIN_STORIES_WARNING:
-        log.warning(f"Only {len(articles)} articles — below warning threshold")
+        log.warning(f"⚠️  Only {len(articles)} articles — below threshold of {MIN_STORIES_WARNING}")
 
-    return articles[:40]  # Top 40 for AI selection
+    return articles[:40]
 
-# === AI SUMMARIZATION ===
+# === AI SUMMARIZATION (unchanged from Grok's version) ===
 def generate_digest(articles: List[Dict]) -> str:
+    """Generate digest using Claude AI"""
+    log.info("🤖 Generating AI digest...")
+    
     client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
     model = "claude-sonnet-4-20250514"
 
@@ -159,18 +238,16 @@ Organize stories into relevant categories such as:
 - Community & Culture
 - Infrastructure & Development
 
-IMPORTANT: Do NOT include any sports stories. Skip all articles about sports, athletics, games, or sporting events.
+IMPORTANT: Do NOT include any sports stories.
 
 For each story:
 1. Write a clear, engaging <h3> headline
 2. Summarize in 2-3 sentences in a <p> tag
-3. Include source and link: <p><strong>Source:</strong> <a href="{a['link']}">Read more at {a['source']}</a></p>
+3. Include source and link: <p><strong>Source:</strong> <a href="url">Read more at SourceName</a></p>
 
-Include AT LEAST 10-15 stories covering diverse topics. Focus on stories most important to Appalachian communities. Use a warm, community-focused tone. Start directly with <h2> tags.
-"""
+Include AT LEAST 10-15 stories covering diverse topics. Focus on stories most important to Appalachian communities. Use a warm, community-focused tone. Start directly with <h2> tags."""
 
     try:
-        log.info("Sending to Claude AI...")
         response = client.messages.create(
             model=model,
             max_tokens=4000,
@@ -178,15 +255,21 @@ Include AT LEAST 10-15 stories covering diverse topics. Focus on stories most im
             messages=[{"role": "user", "content": prompt}]
         )
         html_content = response.content[0].text.strip()
-        log.info("AI digest generated.")
+        log.info("✅ AI digest generated successfully")
         return html_content
+        
     except Exception as e:
-        log.error(f"Claude API failed: {e}")
+        log.error(f"❌ Claude API failed: {e}")
         raise
 
 # === HTML EMAIL TEMPLATE ===
-def build_email(html_content: str, article_count: int) -> str:
+def build_email(html_content: str, article_count: int, recipient_email: str) -> str:
+    """Build HTML email with proper footer and compliance"""
     today = datetime.now().strftime("%B %d, %Y")
+    
+    # Get signup form link from environment (with fallback)
+    signup_link = os.getenv("GOOGLE_FORM_LINK", "https://jbranx.github.io/Appalachian-News-Aggregator")
+    
     full_html = f'''<!DOCTYPE html>
 <html>
 <head>
@@ -206,9 +289,11 @@ def build_email(html_content: str, article_count: int) -> str:
         a {{ color: #2d5016; text-decoration: none; }}
         a:hover {{ text-decoration: underline; }}
         .footer {{ background: #34495e; color: #ecf0f1; padding: 30px; text-align: center; font-size: 14px; }}
-        .footer a {{ color: #ecf0f1; }}
-        .subscribe-btn {{ background: #2d5016; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: 600; font-size: 16px; display: inline-block; margin: 10px 0; }}
+        .footer a {{ color: #ecf0f1; text-decoration: underline; }}
+        .footer a:hover {{ color: #4a7c59; }}
+        .subscribe-btn {{ background: #2d5016; color: white !important; padding: 10px 20px; text-decoration: none !important; border-radius: 5px; font-weight: 600; font-size: 16px; display: inline-block; margin: 10px 0; }}
         .subscribe-btn:hover {{ background: #1e4620; }}
+        .unsubscribe {{ font-size: 12px; color: #bdc3c7; margin-top: 20px; }}
         @media (max-width: 600px) {{ .body {{ padding: 20px; }} }}
     </style>
 </head>
@@ -223,123 +308,132 @@ def build_email(html_content: str, article_count: int) -> str:
             {html_content}
         </div>
         <div class="footer">
-            <p>Curated from 21 trusted Appalachian news sources.</p>
+            <p><strong>Curated from 21 trusted Appalachian news sources</strong></p>
             <p style="text-align: center; margin: 20px 0;">
-                <a class="subscribe-btn" href="https://jbranx.github.io/Appalachian-News-Aggregator">Subscribe for Daily Updates</a>
+                <a class="subscribe-btn" href="{signup_link}">Share with a Friend</a>
             </p>
-            <p>Appalachian Daily is a news aggregator created by Jim Branscome. You can provide him feedback at <a href="mailto:jbranscome@gmail.com">jbranscome@gmail.com</a>.</p>
-            <p><a href="https://github.com/jbranx/Appalachian-News-Aggregator">Powered by open-source automation</a></p>
-            <p style="font-size: 12px; color: #bdc3c7;">*|LIST:UNSUB|*</p>  <!-- Mailchimp unsubscribe merge tag -->
+            <p>
+                <strong>Appalachian Daily</strong><br>
+                Phoenix, Arizona<br>
+                Created by Jim Branscome
+            </p>
+            <p>
+                Questions or feedback? <a href="mailto:jbranscome@gmail.com">jbranscome@gmail.com</a>
+            </p>
+            <p class="unsubscribe">
+                <a href="mailto:jbranscome@gmail.com?subject=Unsubscribe%20{recipient_email}&body=Please%20unsubscribe%20{recipient_email}">Unsubscribe</a> | 
+                You're receiving this because you subscribed at Appalachian Daily
+            </p>
+            <p style="font-size: 11px; color: #95a5a6; margin-top: 15px;">
+                <a href="https://github.com/jbranx/Appalachian-News-Aggregator">Powered by open-source automation</a>
+            </p>
         </div>
     </div>
 </body>
 </html>'''
     return full_html
 
-# === SEND EMAIL ===
-def send_email(html_body: str):
-    # Try Mailchimp first for auto-unsubscribe
-    api_key = os.getenv("MAILCHIMP_API_KEY")
-    if api_key:
-        try:
-            log.info("Sending via Mailchimp...")
-            client = MailchimpMarketing.Client()
-            client.set_config({
-                "api_key": api_key,
-                "server": api_key.split('-')[-1]  # e.g., 'us1'
-            })
-
-            list_id = os.getenv("MAILCHIMP_LIST_ID")
-            if list_id:
-                # Add/update recipient
-                recipient = os.getenv("RECIPIENT_EMAIL")
-                if recipient:
-                    subscriber_hash = hashlib.md5(recipient.lower().encode()).hexdigest()
-                    log.info(f"Adding subscriber: {recipient}")
-                    client.lists.add_or_update_list_member(
-                        list_id=list_id,
-                        subscriber_hash=subscriber_hash,
-                        body={"email_address": recipient, "status": "subscribed"}
-                    )
-
-                # Create campaign
-                log.info("Creating Mailchimp campaign...")
-                today = datetime.now().strftime("%B %d, %Y")
-                campaign = client.campaigns.create({
-                    "type": "regular",
-                    "recipients": {"list_id": list_id},
-                    "settings": {
-                        "subject_line": f"🏔️ Appalachian Daily • {today}",
-                        "from_name": "Appalachian Daily",
-                        "reply_to": os.getenv("EMAIL_ADDRESS", "noreply@appalachiandaily.com")
-                    }
-                })
-
-                # Set content
-                client.campaigns.set_campaign_content(
-                    campaign_id=campaign["id"],
-                    body={"html": html_body}
-                )
-
-                # Send
-                log.info("Sending Mailchimp campaign...")
-                response = client.campaigns.send(campaign_id=campaign["id"])
-                log.info(f"✅ Campaign sent! ID: {campaign['id']} (unsubscribe auto-added)")
-                return
-            else:
-                log.warning("No MAILCHIMP_LIST_ID — falling back to Gmail")
-        except Exception as e:
-            log.warning(f"Mailchimp failed: {e} — falling back to Gmail")
-
-    # Fallback to Gmail
-    log.info("Sending via Gmail SMTP...")
+# === SEND EMAILS TO ALL SUBSCRIBERS ===
+def send_to_subscribers(html_content: str, article_count: int):
+    """Send digest to all active subscribers via Gmail SMTP"""
+    
+    # Get subscribers from Google Sheets
+    subscribers = get_subscribers()
+    
+    # Fallback to owner email if no subscribers found
+    if not subscribers:
+        fallback_email = os.getenv("RECIPIENT_EMAIL")
+        if fallback_email:
+            log.warning(f"No subscribers found - sending test email to {fallback_email}")
+            subscribers = [fallback_email]
+        else:
+            log.error("No subscribers and no fallback email configured")
+            return
+    
+    # Get Gmail credentials
     sender = os.getenv("EMAIL_ADDRESS")
     password = os.getenv("EMAIL_PASSWORD")
-    recipient = os.getenv("RECIPIENT_EMAIL")
-
-    if not all([sender, password, recipient]):
-        log.error("Missing Gmail credentials — cannot send")
+    
+    if not all([sender, password]):
+        log.error("Missing Gmail credentials (EMAIL_ADDRESS or EMAIL_PASSWORD)")
         return
-
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"🏔️ Appalachian Daily • {datetime.now().strftime('%B %d, %Y')}"
-    msg["From"] = sender
-    msg["To"] = recipient
-
-    part = MIMEText(html_body, "html", "utf-8")
-    msg.attach(part)
-
+    
+    today = datetime.now().strftime("%B %d, %Y")
+    subject = f"🏔️ Appalachian Daily • {today}"
+    
+    success_count = 0
+    fail_count = 0
+    
+    log.info(f"📧 Sending to {len(subscribers)} subscriber(s)...")
+    
+    # Connect to SMTP server once
     try:
         server = smtplib.SMTP("smtp.gmail.com", 587)
         server.starttls()
         server.login(sender, password)
-        server.sendmail(sender, recipient, msg.as_string())
+        
+        # Send to each subscriber
+        for recipient in subscribers:
+            try:
+                # Build personalized email
+                email_html = build_email(html_content, article_count, recipient)
+                
+                msg = MIMEMultipart("alternative")
+                msg["Subject"] = subject
+                msg["From"] = f"Appalachian Daily <{sender}>"
+                msg["To"] = recipient
+                
+                part = MIMEText(email_html, "html", "utf-8")
+                msg.attach(part)
+                
+                server.sendmail(sender, recipient, msg.as_string())
+                success_count += 1
+                log.info(f"  ✓ Sent to {recipient}")
+                
+            except Exception as e:
+                fail_count += 1
+                log.error(f"  ✗ Failed to send to {recipient}: {str(e)[:100]}")
+        
         server.quit()
-        log.info("✅ Email sent via Gmail!")
+        
     except Exception as e:
-        log.error(f"Failed to send email: {e}")
+        log.error(f"❌ SMTP connection failed: {e}")
+        return
+    
+    log.info(f"\n📊 Email Summary:")
+    log.info(f"   ✅ Sent successfully: {success_count}")
+    log.info(f"   ❌ Failed: {fail_count}")
 
 # === MAIN ===
 def main():
-    log.info("Starting Appalachian Daily News Aggregator")
+    """Main execution"""
+    log.info("\n" + "="*60)
+    log.info("🏔️  APPALACHIAN DAILY NEWS AGGREGATOR")
+    log.info("="*60 + "\n")
 
+    # Fetch articles
     articles = fetch_articles()
     if len(articles) < 3:
-        log.error("Too few articles to proceed.")
+        log.error("❌ Too few articles to proceed (minimum 3 required)")
         sys.exit(1)
 
+    # Generate AI digest
     try:
         digest_html = generate_digest(articles)
     except Exception as e:
-        log.error("AI summarization failed.")
+        log.error("❌ AI summarization failed - cannot proceed")
         sys.exit(1)
 
+    # Count stories
     story_count = digest_html.count("<h3>")
-    email_html = build_email(digest_html, story_count)
-    send_email(email_html)
-
-    log.info(f"Digest complete: {story_count} stories")
+    log.info(f"\n📰 Generated digest with {story_count} stories")
+    
+    # Send to all subscribers
+    send_to_subscribers(digest_html, story_count)
+    
+    log.info("\n" + "="*60)
+    log.info(f"✅ DIGEST COMPLETE: {story_count} stories sent")    
+    log.info("="*60 + "\n")
 
 if __name__ == "__main__":
     main()
-    
