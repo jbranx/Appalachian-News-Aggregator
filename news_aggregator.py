@@ -56,7 +56,8 @@ SOURCES = [
     {"name": "Highlander Research", "url": "https://www.highlandercenter.org/feed/"},
     {"name": "West Virginia MetroNews", "url": "https://wvmetronews.com/feed/"},
     {"name": "Bluefield Daily Telegraph", "url": "https://www.bdtonline.com/search/?q=&t=article&l=25&d=&d1=&d2=&s=start_time&sd=desc&f=rss"},
-    {"name": "Black By God West Virginia", "url": "https://blackbygod.com/feed/"},
+     {"name": "Black By God West Virginia", "url": "https://blackbygod.com/feed/"},
+]
 
 TIME_WINDOW_HOURS = 72
 MAX_PER_SOURCE = 20
