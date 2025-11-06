@@ -9,6 +9,9 @@ import sys
 import logging
 import feedparser
 from datetime import datetime, timedelta, timezone
+import json
+import gspread
+from google.oauth2.service_account import Credentials
 from dateutil import parser as date_parser
 import requests
 from anthropic import Anthropic
@@ -53,7 +56,7 @@ SOURCES = [
     {"name": "Highlander Research", "url": "https://www.highlandercenter.org/feed/"},
     {"name": "West Virginia MetroNews", "url": "https://wvmetronews.com/feed/"},
     {"name": "Bluefield Daily Telegraph", "url": "https://www.bdtonline.com/search/?q=&t=article&l=25&d=&d1=&d2=&s=start_time&sd=desc&f=rss"},
-]
+    {"name": "Black By God West Virginia", "url": "https://blackbygod.com/feed/"},
 
 TIME_WINDOW_HOURS = 72
 MAX_PER_SOURCE = 20
@@ -157,8 +160,8 @@ Organize stories into relevant categories such as:
 - Education
 - Politics & Policy
 - Community & Culture
-- Infrastructure & Development
-
+- Infrastructure & Broadband
+- Appalachian Studies Programs
 IMPORTANT: Do NOT include any sports stories. Skip all articles about sports, athletics, games, or sporting events.
 
 For each story:
@@ -166,7 +169,7 @@ For each story:
 2. Summarize in 2-3 sentences in a <p> tag
 3. Include source and link: <p><strong>Source:</strong> <a href="{a['link']}">Read more at {a['source']}</a></p>
 
-Include AT LEAST 10-15 stories covering diverse topics. Focus on stories most important to Appalachian communities. Use a warm, community-focused tone. Start directly with <h2> tags.
+Include AT LEAST 15-20 stories covering diverse topics. Focus on stories most important to Appalachian communities. Use a warm, community-focused tone. Start directly with <h2> tags.
 """
 
     try:
@@ -320,6 +323,91 @@ def send_email(html_body: str):
         log.error(f"Failed to send email: {e}")
 
 # === MAIN ===
+def get_subscribers():
+    """Read subscriber emails from Google Sheet"""
+    try:
+        scopes = ['https://www.googleapis.com/auth/spreadsheets.readonly']
+        creds_json = os.environ.get('GOOGLE_SHEETS_CREDENTIALS')
+        
+        if not creds_json:
+            print("⚠️ No Google Sheets credentials - using fallback email")
+            return [os.environ.get('RECIPIENT_EMAIL', '')]
+        
+        creds_dict = json.loads(creds_json)
+        credentials = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        client = gspread.authorize(credentials)
+        
+        sheet = client.open("Appalachian Newsletter Subscribers").sheet1
+        records = sheet.get_all_records()
+        
+        subscribers = []
+        for record in records:
+            email = record.get('Email Address', '').strip()
+            if email and '@' in email:
+                subscribers.append(email)
+        
+        print(f"✅ Found {len(subscribers)} subscribers")
+        return subscribers
+        
+    except Exception as e:
+        print(f"❌ Error reading Google Sheets: {e}")
+        return [os.environ.get('RECIPIENT_EMAIL', '')]
+
+
+def send_to_subscribers(html_content, subject="Appalachian Daily Digest"):
+    """Send email to all subscribers"""
+    import smtplib
+    from email.mime.text import MIMEText
+    from email.mime.multipart import MIMEMultipart
+    
+    subscribers = get_subscribers()
+    
+    if not subscribers:
+        print("⚠️ No subscribers found")
+        return
+    
+    smtp_server = "smtp.gmail.com"
+    smtp_port = 587
+    sender_email = os.environ['EMAIL_ADDRESS']
+    sender_password = os.environ['EMAIL_PASSWORD']
+    
+    success_count = 0
+    fail_count = 0
+    
+    for recipient in subscribers:
+        try:
+            message = MIMEMultipart('alternative')
+            message['Subject'] = subject
+            message['From'] = f"Appalachian Daily <{sender_email}>"
+            message['To'] = recipient
+            
+            unsubscribe_url = "https://docs.google.com/forms/d/e/1FAIpQLSeqq0YbOTAI0bz0PbzTSbUBbK2usl2E0GDUo9glISXueAdfXg/viewform"
+            html_with_unsub = html_content.replace(
+                '</body>',
+                f'<div style="text-align: center; padding: 20px; color: #666; font-size: 12px;">'
+                f'<a href="{unsubscribe_url}" style="color: #2d5016;">Unsubscribe</a> | '
+                f'Appalachian Daily Newsletter</div></body>'
+            )
+            
+            html_part = MIMEText(html_with_unsub, 'html')
+            message.attach(html_part)
+            
+            with smtplib.SMTP(smtp_server, smtp_port) as server:
+                server.starttls()
+                server.login(sender_email, sender_password)
+                server.send_message(message)
+            
+            success_count += 1
+            print(f"✅ Sent to {recipient}")
+            
+        except Exception as e:
+            fail_count += 1
+            print(f"❌ Failed to send to {recipient}: {e}")
+    
+    print(f"\n📊 Results: {success_count} sent, {fail_count} failed")
+
+Step 3: Paste It
+
 def main():
     log.info("Starting Appalachian Daily News Aggregator")
 
@@ -336,7 +424,7 @@ def main():
 
     story_count = digest_html.count("<h3>")
     email_html = build_email(digest_html, story_count)
-    send_email(email_html)
+    send_to_subscribers(email_html)
 
     log.info(f"Digest complete: {story_count} stories")
 
