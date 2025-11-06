@@ -21,8 +21,7 @@ from email.mime.multipart import MIMEMultipart
 from typing import List, Dict, Any
 import html
 import hashlib
-import mailchimp_marketing as MailchimpMarketing
-from mailchimp_marketing.api_client import ApiClientError
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
