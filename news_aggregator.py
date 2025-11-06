@@ -230,9 +230,9 @@ def build_email(html_content: str, article_count: int) -> str:
             <p style="text-align: center; margin: 20px 0;">
                 <a class="subscribe-btn" href="https://jbranx.github.io/Appalachian-News-Aggregator">Subscribe for Daily Updates</a>
             </p>
-            <p>Appalachian Daily is a news aggregator created by Jim Branscome. You can provide him feedback at <a href="mailto:jbranscome@gmail.com">jbranscome@gmail.com</a>.</p>
+           <p>Appalachian Daily is a news aggregator created by Jim Branscome. You can provide him feedback at <a href="mailto:jbranscome@gmail.com">jbranscome@gmail.com</a>.</p>
             <p><a href="https://github.com/jbranx/Appalachian-News-Aggregator">Powered by open-source automation</a></p>
-            <p style="font-size: 12px; color: #bdc3c7;">*|LIST:UNSUB|*</p>  <!-- Mailchimp unsubscribe merge tag -->
+        </div>
         </div>
     </div>
 </body>
