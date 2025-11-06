@@ -337,7 +337,7 @@ def get_subscribers():
         credentials = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         client = gspread.authorize(credentials)
         
-        sheet = client.open("Appalachian Newsletter Subscribers").sheet1
+        sheet = client.open_by_key("12n0VY54S1jjl-KBrL7O_BID_Q90jidifJ_LthmwDYVk").sheet1
         records = sheet.get_all_records()
         
         subscribers = []
