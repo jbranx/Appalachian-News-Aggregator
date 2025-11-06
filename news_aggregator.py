@@ -415,17 +415,14 @@ def main():
     if len(articles) < 3:
         log.error("Too few articles to proceed.")
         sys.exit(1)
-
-   try:
-    digest_html = generate_digest(articles)
-except Exception as e:
-    log.error(f"AI summarization failed: {e}")
-    sys.exit(1)
-
+    try:
+        digest_html = generate_digest(articles)
+    except Exception as e:
+        log.error(f"AI summarization failed: {e}")
+        sys.exit(1)
     story_count = digest_html.count("<h3>")
     email_html = build_email(digest_html, story_count)
     send_to_subscribers(email_html)
-
     log.info(f"Digest complete: {story_count} stories")
 
 if __name__ == "__main__":
