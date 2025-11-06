@@ -416,11 +416,11 @@ def main():
         log.error("Too few articles to proceed.")
         sys.exit(1)
 
-    try:
-        digest_html = generate_digest(articles)
-    except Exception as e:
-        log.error("AI summarization failed.")
-        sys.exit(1)
+   try:
+    digest_html = generate_digest(articles)
+except Exception as e:
+    log.error(f"AI summarization failed: {e}")
+    sys.exit(1)
 
     story_count = digest_html.count("<h3>")
     email_html = build_email(digest_html, story_count)
