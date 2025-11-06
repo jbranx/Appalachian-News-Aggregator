@@ -407,7 +407,7 @@ def send_to_subscribers(html_content, subject="Appalachian Daily Digest"):
     
     print(f"\n📊 Results: {success_count} sent, {fail_count} failed")
 
-Step 3: Paste It
+
 
 def main():
     log.info("Starting Appalachian Daily News Aggregator")
