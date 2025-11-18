@@ -29,35 +29,87 @@ log = logging.getLogger(__name__)
 
 # === CONFIGURATION ===
 SOURCES = [
-    # Core Investigative & Policy
-    {"name": "Kentucky Lantern", "url": "https://kentuckylantern.com/feed/"},
-    {"name": "Cardinal News", "url": "https://cardinalnews.org/feed/"},
-    {"name": "West Virginia Watch", "url": "https://www.wvwatch.org/feed/"},
-    {"name": "Mountain State Spotlight", "url": "https://mountainstatespotlight.org/feed/"},
-    {"name": "Ohio Valley ReSource", "url": "https://ohiovalleyresource.org/feed/"},
-    # Regional Focus & Culture
+    # ============================================
+    # MULTI-STATE & REGIONAL COVERAGE
+    # ============================================
     {"name": "Daily Yonder", "url": "https://dailyyonder.com/feed/"},
     {"name": "100 Days in Appalachia", "url": "https://www.100daysinappalachia.com/feed/"},
+    {"name": "Ohio Valley ReSource", "url": "https://ohiovalleyresource.org/feed/"},
     {"name": "Appalachian Voices", "url": "https://appvoices.org/feed/"},
     {"name": "Scalawag Magazine", "url": "https://scalawagmagazine.org/feed/"},
-    # Major Regional Papers
-    {"name": "Charleston Gazette-Mail", "url": "https://www.wvgazettemail.com/search/?q=&t=article&l=25&d=&d1=&d2=&s=start_time&sd=desc&c[]=news*&f=rss"},
-    {"name": "Bristol Herald Courier", "url": "https://www.heraldcourier.com/search/?q=&t=article&l=25&d=&d1=&d2=&s=start_time&sd=desc&f=rss"},
-    {"name": "Lexington Herald-Leader", "url": "https://www.kentucky.com/news/?widgetName=rssfeed&widgetContentId=712015&getXmlFeed=true"},
-    # Local & Community
-    {"name": "WYMT Mountain News", "url": "https://www.wymt.com/news/?format=rss"},
-    {"name": "State Journal WV", "url": "https://www.wvnews.com/statejournal/search/?q=&t=article&l=25&d=&d1=&d2=&s=start_time&sd=desc&f=rss"},
-    {"name": "WV Public Broadcasting", "url": "https://www.wvpublic.org/rss.xml"},
-    # Environmental & Energy
+    {"name": "Highlander Research", "url": "https://www.highlandercenter.org/feed/"},
     {"name": "Inside Climate News - Appalachia", "url": "https://insideclimatenews.org/category/appalachia/feed/"},
     {"name": "Southern Environmental Law Center", "url": "https://www.southernenvironment.org/feed/"},
-    # Additional
-    {"name": "Highlander Research", "url": "https://www.highlandercenter.org/feed/"},
+    
+    # ============================================
+    # KENTUCKY
+    # ============================================
+    {"name": "Kentucky Lantern", "url": "https://kentuckylantern.com/feed/"},
+    {"name": "WYMT Mountain News", "url": "https://www.wymt.com/news/?format=rss"},
+    {"name": "Mountain Eagle", "url": "https://www.themountaineagle.com/feed/"},
+    
+    # ============================================
+    # WEST VIRGINIA
+    # ============================================
+    {"name": "West Virginia Watch", "url": "https://www.wvwatch.org/feed/"},
+    {"name": "Mountain State Spotlight", "url": "https://mountainstatespotlight.org/feed/"},
+    {"name": "WV Public Broadcasting", "url": "https://www.wvpublic.org/rss.xml"},
     {"name": "West Virginia MetroNews", "url": "https://wvmetronews.com/feed/"},
-    {"name": "Bluefield Daily Telegraph", "url": "https://www.bdtonline.com/search/?q=&t=article&l=25&d=&d1=&d2=&s=start_time&sd=desc&f=rss"},
-     {"name": "Black By God West Virginia", "url": "https://blackbygod.com/feed/"},
+    {"name": "Black By God West Virginia", "url": "https://blackbygod.com/feed/"},
+    
+    # ============================================
+    # VIRGINIA
+    # ============================================
+    {"name": "Cardinal News", "url": "https://cardinalnews.org/feed/"},
+    
+    # ============================================
+    # PENNSYLVANIA (Northern coalfields)
+    # ============================================
+    {"name": "PublicSource", "url": "https://www.publicsource.org/feed/"},
+    {"name": "StateImpact Pennsylvania", "url": "https://stateimpact.npr.org/pennsylvania/feed/"},
+    {"name": "PA Post", "url": "https://papost.org/feed/"},
+    {"name": "Pittsburgh Current", "url": "https://pittsburghcurrent.com/feed/"},
+    
+    # ============================================
+    # TENNESSEE
+    # ============================================
+    {"name": "Tennessee Lookout", "url": "https://tennesseelookout.com/feed/"},
+    {"name": "WJHL News", "url": "https://www.wjhl.com/feed/"},
+    
+    # ============================================
+    # NORTH CAROLINA
+    # ============================================
+    {"name": "Carolina Public Press", "url": "https://carolinapublicpress.org/feed/"},
+    {"name": "Smoky Mountain News", "url": "https://smokymountainnews.com/feed/"},
+    {"name": "NC Health News", "url": "https://www.northcarolinahealthnews.org/feed/"},
+    {"name": "Mountain Times", "url": "https://mountaintimes.com/feed/"},
+    {"name": "Blue Ridge Public Radio", "url": "https://www.bpr.org/rss.xml"},
+    
+    # ============================================
+    # SOUTH CAROLINA (Upstate ARC counties)
+    # ============================================
+    {"name": "The Nerve SC", "url": "https://thenerve.org/feed/"},
+    
+    # ============================================
+    # GEORGIA (North Georgia ARC counties)
+    # ============================================
+    # Note: No non-paywall sources available - Rome News-Tribune is paywall
+    
+    # ============================================
+    # ALABAMA (North Alabama ARC counties)
+    # ============================================
+    {"name": "AL.com", "url": "https://www.al.com/arc/outboundfeeds/rss/?outputType=xml"},
+    
+    # ============================================
+    # MISSISSIPPI (Northeast MS ARC counties)
+    # ============================================
+    {"name": "Mississippi Today", "url": "https://mississippitoday.org/feed/"},
+    
+    # ============================================
+    # OHIO (Southeast Ohio ARC counties)
+    # ============================================
+    {"name": "Athens News", "url": "https://www.athensnews.com/search/?q=&t=article&l=25&d=&d1=&d2=&s=start_time&sd=desc&f=rss"},
 ]
-
 TIME_WINDOW_HOURS = 72
 MAX_PER_SOURCE = 20
 MIN_STORIES_WARNING = 5
