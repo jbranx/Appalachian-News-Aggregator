@@ -20,7 +20,6 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import List, Dict, Any
 import html
-import hashlib
 
 
 # Configure logging
@@ -110,93 +109,151 @@ SOURCES = [
     # ============================================
     {"name": "Athens News", "url": "https://www.athensnews.com/search/?q=&t=article&l=25&d=&d1=&d2=&s=start_time&sd=desc&f=rss"},
 ]
+
+# === PAYWALL SOURCES (Subscription Required) ===
+PAYWALL_SOURCES = [
+    # Kentucky
+    {"name": "Lexington Herald-Leader", "url": "https://www.kentucky.com/news/?widgetName=rssfeed&widgetContentId=712015&getXmlFeed=true"},
+    
+    # West Virginia
+    {"name": "Charleston Gazette-Mail", "url": "https://www.wvgazettemail.com/search/?q=&t=article&l=25&d=&d1=&d2=&s=start_time&sd=desc&c[]=news*&f=rss"},
+    
+    # Virginia
+    {"name": "Bristol Herald Courier", "url": "https://www.heraldcourier.com/search/?q=&t=article&l=25&d=&d1=&d2=&s=start_time&sd=desc&f=rss"},
+    {"name": "Roanoke Times", "url": "https://roanoke.com/search/?f=rss"},
+    {"name": "Bluefield Daily Telegraph", "url": "https://www.bdtonline.com/search/?q=&t=article&l=25&d=&d1=&d2=&s=start_time&sd=desc&f=rss"},
+    
+    # Tennessee
+    {"name": "Johnson City Press", "url": "https://www.johnsoncitypress.com/search/?q=&t=article&l=25&d=&d1=&d2=&s=start_time&sd=desc&f=rss"},
+    {"name": "Knoxville News Sentinel", "url": "https://www.knoxnews.com/search/?f=rss"},
+    
+    # North Carolina
+    {"name": "Asheville Citizen-Times", "url": "https://www.citizen-times.com/search/?f=rss"},
+    
+    # Georgia
+    {"name": "Rome News-Tribune", "url": "https://www.northwestgeorgianews.com/rome/search/?q=&t=article&l=25&d=&d1=&d2=&s=start_time&sd=desc&f=rss"},
+    
+    # Pennsylvania
+    {"name": "Pittsburgh Post-Gazette", "url": "https://www.post-gazette.com/arc/outboundfeeds/rss/"},
+]
+
 TIME_WINDOW_HOURS = 72
 MAX_PER_SOURCE = 20
 MIN_STORIES_WARNING = 5
 
 # === FETCH ARTICLES ===
-def fetch_articles() -> List[Dict[str, Any]]:
+def fetch_articles() -> tuple:
+    """Fetch articles from both free and paywall sources"""
     cutoff = datetime.now(timezone.utc) - timedelta(hours=TIME_WINDOW_HOURS)
-    articles = []
-    failed_sources = []
+    
+    def fetch_from_sources(sources, is_paywall=False):
+        articles = []
+        failed_sources = []
+        
+        for source in sources:
+            try:
+                log.info(f"Fetching {source['name']}...")
+                feed = feedparser.parse(source['url'])
+                if not feed.entries:
+                    log.warning(f"No entries from {source['name']}")
+                    failed_sources.append(source['name'])
+                    continue
 
-    for source in SOURCES:
-        try:
-            log.info(f"Fetching {source['name']}...")
-            feed = feedparser.parse(source['url'])
-            if not feed.entries:
-                log.warning(f"No entries from {source['name']}")
+                count = 0
+                for entry in feed.entries[:MAX_PER_SOURCE]:
+                    pub_date = None
+                    if hasattr(entry, "published_parsed") and entry.published_parsed:
+                        pub_date = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
+                    elif hasattr(entry, "updated_parsed") and entry.updated_parsed:
+                        pub_date = datetime(*entry.updated_parsed[:6], tzinfo=timezone.utc)
+                    else:
+                        try:
+                            pub_date = date_parser.parse(entry.get("published") or entry.get("updated", ""))
+                            if pub_date.tzinfo is None:
+                                pub_date = pub_date.replace(tzinfo=timezone.utc)
+                        except:
+                            pub_date = None
+
+                    if pub_date and pub_date >= cutoff:
+                        title = html.escape(entry.title) if entry.title else "No title"
+                        link = entry.link
+                        summary = html.escape(entry.summary) if hasattr(entry, "summary") and entry.summary else ""
+
+                        # Skip sports
+                        lower_title = title.lower()
+                        lower_summary = summary.lower()
+                        if any(kw in lower_title or kw in lower_summary for kw in ["game", "score", "sports", "athletics", "team", "player", "coach", "ncaa", "high school football"]):
+                            continue
+
+                        articles.append({
+                            "title": title,
+                            "link": link,
+                            "summary": summary,
+                            "source": source['name'],
+                            "pub_date": pub_date.isoformat(),
+                            "is_paywall": is_paywall
+                        })
+                        count += 1
+
+                log.info(f"✓ {source['name']}: {count} articles")
+            except Exception as e:
+                log.error(f"✗ Failed {source['name']}: {e}")
                 failed_sources.append(source['name'])
-                continue
-
-            count = 0
-            for entry in feed.entries[:MAX_PER_SOURCE]:
-                pub_date = None
-                if hasattr(entry, "published_parsed") and entry.published_parsed:
-                    pub_date = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
-                elif hasattr(entry, "updated_parsed") and entry.updated_parsed:
-                    pub_date = datetime(*entry.updated_parsed[:6], tzinfo=timezone.utc)
-                else:
-                    try:
-                        pub_date = date_parser.parse(entry.get("published") or entry.get("updated", ""))
-                        if pub_date.tzinfo is None:
-                            pub_date = pub_date.replace(tzinfo=timezone.utc)
-                    except:
-                        pub_date = None
-
-                if pub_date and pub_date >= cutoff:
-                    title = html.escape(entry.title) if entry.title else "No title"
-                    link = entry.link
-                    summary = html.escape(entry.summary) if hasattr(entry, "summary") and entry.summary else ""
-
-                    # Skip sports
-                    lower_title = title.lower()
-                    lower_summary = summary.lower()
-                    if any(kw in lower_title or kw in lower_summary for kw in ["game", "score", "sports", "athletics", "team", "player", "coach", "ncaa", "high school football"]):
-                        continue
-
-                    articles.append({
-                        "title": title,
-                        "link": link,
-                        "summary": summary,
-                        "source": source['name'],
-                        "pub_date": pub_date.isoformat()
-                    })
-                    count += 1
-
-            log.info(f"✓ {source['name']}: {count} articles")
-        except Exception as e:
-            log.error(f"✗ Failed {source['name']}: {e}")
-            failed_sources.append(source['name'])
-
-    articles.sort(key=lambda x: x['pub_date'], reverse=True)
-    log.info(f"Total articles collected: {len(articles)}")
-    if failed_sources:
-        log.warning(f"Failed sources: {', '.join(failed_sources)}")
-
-    if len(articles) < MIN_STORIES_WARNING:
-        log.warning(f"Only {len(articles)} articles — below warning threshold")
-
-    return articles[:40]  # Top 40 for AI selection
+        
+        if failed_sources:
+            log.warning(f"Failed sources: {', '.join(failed_sources)}")
+        
+        return articles
+    
+    # Fetch from both source types
+    free_articles = fetch_from_sources(SOURCES, is_paywall=False)
+    paywall_articles = fetch_from_sources(PAYWALL_SOURCES, is_paywall=True)
+    
+    # Sort by date
+    free_articles.sort(key=lambda x: x['pub_date'], reverse=True)
+    paywall_articles.sort(key=lambda x: x['pub_date'], reverse=True)
+    
+    log.info(f"Total free articles: {len(free_articles)}")
+    log.info(f"Total paywall articles: {len(paywall_articles)}")
+    
+    if len(free_articles) < MIN_STORIES_WARNING:
+        log.warning(f"Only {len(free_articles)} free articles — below warning threshold")
+    
+    return free_articles[:40], paywall_articles[:20]
 
 # === AI SUMMARIZATION ===
-def generate_digest(articles: List[Dict]) -> str:
+def generate_digest(free_articles: List[Dict], paywall_articles: List[Dict]) -> str:
+    """Generate digest with separate free and paywall sections"""
     client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
     model = "claude-sonnet-4-20250514"
 
-    articles_data = ""
-    for i, a in enumerate(articles, 1):
-        articles_data += f"\n--- Article {i} ---\n"
-        articles_data += f"Title: {a['title']}\n"
-        articles_data += f"Link: {a['link']}\n"
-        articles_data += f"Source: {a['source']}\n"
-        articles_data += f"Summary: {a['summary'][:1000]}\n"
+    # Format free articles
+    free_data = ""
+    for i, a in enumerate(free_articles, 1):
+        free_data += f"\n--- Article {i} ---\n"
+        free_data += f"Title: {a['title']}\n"
+        free_data += f"Link: {a['link']}\n"
+        free_data += f"Source: {a['source']}\n"
+        free_data += f"Summary: {a['summary'][:1000]}\n"
+    
+    # Format paywall articles
+    paywall_data = ""
+    for i, a in enumerate(paywall_articles, 1):
+        paywall_data += f"\n--- Paywall Article {i} ---\n"
+        paywall_data += f"Title: {a['title']}\n"
+        paywall_data += f"Link: {a['link']}\n"
+        paywall_data += f"Source: {a['source']}\n"
+        paywall_data += f"Summary: {a['summary'][:1000]}\n"
 
-    prompt = f"""You are creating a daily news digest for Appalachian communities. Here are recent articles from trusted regional sources:
+    prompt = f"""You are creating a daily news digest for Appalachian communities. You have TWO types of articles:
 
-{articles_data}
+=== FREE ACCESS ARTICLES ===
+{free_data}
 
-Create a comprehensive, well-organized daily digest email using ONLY these HTML elements:
+=== SUBSCRIPTION REQUIRED ARTICLES ===
+{paywall_data}
+
+Create a comprehensive daily digest email with TWO SECTIONS using ONLY these HTML elements:
 - <h2>Section Title</h2> for main categories
 - <h3>Story Headline</h3> for individual stories
 - <p>Content here</p> for all text paragraphs
@@ -205,7 +262,8 @@ Create a comprehensive, well-organized daily digest email using ONLY these HTML 
 
 DO NOT use Markdown (no #, **, or ---). Only use HTML tags.
 
-Organize stories into relevant categories such as:
+SECTION 1: FREE ACCESS STORIES
+Organize these stories into relevant categories such as:
 - Economy & Jobs
 - Energy & Environment  
 - Health & Social Issues
@@ -213,27 +271,35 @@ Organize stories into relevant categories such as:
 - Politics & Policy
 - Community & Culture
 - Infrastructure & Broadband
-- Appalachian Studies Programs
-IMPORTANT: Do NOT include any sports stories. Skip all articles about sports, athletics, games, or sporting events.
+
+SECTION 2: PREMIUM SOURCES (Subscription Required)
+After all free stories, add this exact heading:
+<h2 style="color: #8B4513; border-left-color: #8B4513;">📰 Premium Sources (Subscription Required)</h2>
+<p style="color: #666; font-style: italic; margin-bottom: 20px;">The following stories require paid subscriptions but may be of interest to our readers:</p>
+
+Then list paywall stories with the 🔒 emoji in each headline like this:
+<h3>🔒 Story Headline Here</h3>
+
+IMPORTANT: Do NOT include any sports stories from either section. Skip all articles about sports, athletics, games, or sporting events.
 
 For each story:
 1. Write a clear, engaging <h3> headline
 2. Summarize in 2-3 sentences in a <p> tag
-3. Include source and link: <p><strong>Source:</strong> <a href="{a['link']}">Read more at {a['source']}</a></p>
+3. Include source and link: <p><strong>Source:</strong> <a href="link">Read more at source_name</a></p>
 
-Include AT LEAST 15-20 stories covering diverse topics. Focus on stories most important to Appalachian communities. Use a warm, community-focused tone. Start directly with <h2> tags.
+Include AT LEAST 15 free stories and 8-10 paywall stories. Use a warm, community-focused tone. Start directly with <h2> tags for the first free category.
 """
 
     try:
         log.info("Sending to Claude AI...")
         response = client.messages.create(
             model=model,
-            max_tokens=4000,
+            max_tokens=5000,
             temperature=0.7,
             messages=[{"role": "user", "content": prompt}]
         )
         html_content = response.content[0].text.strip()
-        log.info("AI digest generated.")
+        log.info("AI digest generated with paywall section.")
         return html_content
     except Exception as e:
         log.error(f"Claude API failed: {e}")
@@ -278,7 +344,7 @@ def build_email(html_content: str, article_count: int) -> str:
             {html_content}
         </div>
         <div class="footer">
-            <p>Curated from 21 trusted Appalachian news sources.</p>
+            <p>Curated from 40+ trusted Appalachian news sources.</p>
             <p style="text-align: center; margin: 20px 0;">
                 <a class="subscribe-btn" href="https://jbranx.github.io/Appalachian-News-Aggregator">Subscribe for Daily Updates</a>
             </p>
@@ -291,90 +357,7 @@ def build_email(html_content: str, article_count: int) -> str:
 </html>'''
     return full_html
 
-# === SEND EMAIL ===
-def send_email(html_body: str):
-    # Try Mailchimp first for auto-unsubscribe
-    api_key = os.getenv("MAILCHIMP_API_KEY")
-    if api_key:
-        try:
-            log.info("Sending via Mailchimp...")
-            client = MailchimpMarketing.Client()
-            client.set_config({
-                "api_key": api_key,
-                "server": api_key.split('-')[-1]  # e.g., 'us1'
-            })
-
-            list_id = os.getenv("MAILCHIMP_LIST_ID")
-            if list_id:
-                # Add/update recipient
-                recipient = os.getenv("RECIPIENT_EMAIL")
-                if recipient:
-                    subscriber_hash = hashlib.md5(recipient.lower().encode()).hexdigest()
-                    log.info(f"Adding subscriber: {recipient}")
-                    client.lists.add_or_update_list_member(
-                        list_id=list_id,
-                        subscriber_hash=subscriber_hash,
-                        body={"email_address": recipient, "status": "subscribed"}
-                    )
-
-                # Create campaign
-                log.info("Creating Mailchimp campaign...")
-                today = datetime.now().strftime("%B %d, %Y")
-                campaign = client.campaigns.create({
-                    "type": "regular",
-                    "recipients": {"list_id": list_id},
-                    "settings": {
-                        "subject_line": f"🏔️ Appalachian Daily • {today}",
-                        "from_name": "Appalachian Daily",
-                        "reply_to": os.getenv("EMAIL_ADDRESS", "noreply@appalachiandaily.com")
-                    }
-                })
-
-                # Set content
-                client.campaigns.set_campaign_content(
-                    campaign_id=campaign["id"],
-                    body={"html": html_body}
-                )
-
-                # Send
-                log.info("Sending Mailchimp campaign...")
-                response = client.campaigns.send(campaign_id=campaign["id"])
-                log.info(f"✅ Campaign sent! ID: {campaign['id']} (unsubscribe auto-added)")
-                return
-            else:
-                log.warning("No MAILCHIMP_LIST_ID — falling back to Gmail")
-        except Exception as e:
-            log.warning(f"Mailchimp failed: {e} — falling back to Gmail")
-
-    # Fallback to Gmail
-    log.info("Sending via Gmail SMTP...")
-    sender = os.getenv("EMAIL_ADDRESS")
-    password = os.getenv("EMAIL_PASSWORD")
-    recipient = os.getenv("RECIPIENT_EMAIL")
-
-    if not all([sender, password, recipient]):
-        log.error("Missing Gmail credentials — cannot send")
-        return
-
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"🏔️ Appalachian Daily • {datetime.now().strftime('%B %d, %Y')}"
-    msg["From"] = sender
-    msg["To"] = recipient
-
-    part = MIMEText(html_body, "html", "utf-8")
-    msg.attach(part)
-
-    try:
-        server = smtplib.SMTP("smtp.gmail.com", 587)
-        server.starttls()
-        server.login(sender, password)
-        server.sendmail(sender, recipient, msg.as_string())
-        server.quit()
-        log.info("✅ Email sent via Gmail!")
-    except Exception as e:
-        log.error(f"Failed to send email: {e}")
-
-# === MAIN ===
+# === GOOGLE SHEETS & EMAIL ===
 def get_subscribers():
     """Read subscriber emails from Google Sheet"""
     try:
@@ -408,10 +391,6 @@ def get_subscribers():
 
 def send_to_subscribers(html_content, subject="Appalachian Daily Digest"):
     """Send email to all subscribers"""
-    import smtplib
-    from email.mime.text import MIMEText
-    from email.mime.multipart import MIMEMultipart
-    
     subscribers = get_subscribers()
     
     if not subscribers:
@@ -459,16 +438,16 @@ def send_to_subscribers(html_content, subject="Appalachian Daily Digest"):
     print(f"\n📊 Results: {success_count} sent, {fail_count} failed")
 
 
-
+# === MAIN ===
 def main():
     log.info("Starting Appalachian Daily News Aggregator")
 
-    articles = fetch_articles()
-    if len(articles) < 3:
+    free_articles, paywall_articles = fetch_articles()
+    if len(free_articles) < 3:
         log.error("Too few articles to proceed.")
         sys.exit(1)
     try:
-        digest_html = generate_digest(articles)
+        digest_html = generate_digest(free_articles, paywall_articles)
     except Exception as e:
         log.error(f"AI summarization failed: {e}")
         sys.exit(1)
@@ -479,4 +458,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
