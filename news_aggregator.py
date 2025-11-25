@@ -26,7 +26,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 # ============================================
-# FREE / ACCESSIBLE SOURCES (30 + 3 new = 33 sources)
+# FREE / ACCESSIBLE SOURCES (34 sources)
 # ============================================
 SOURCES = [
     # ============================================
@@ -61,6 +61,7 @@ SOURCES = [
     # VIRGINIA
     # ============================================
     {"name": "Cardinal News", "url": "https://cardinalnews.org/feed/"},
+    {"name": "Coalfield Progress", "url": "https://www.thecoalfieldprogress.com/feed/"},
     
     # ============================================
     # TENNESSEE
@@ -412,7 +413,7 @@ def get_subscribers() -> List[str]:
         creds_json = os.environ.get("GOOGLE_SHEETS_CREDENTIALS")
         if not creds_json:
             logger.warning("No Google Sheets credentials found, using fallback email")
-            return [os.environ.get("FALLBACK_EMAIL", "jbranscome@gmail.com")]
+            return [os.environ.get("RECIPIENT_EMAIL", "jbranscome@gmail.com")]
         
         creds_dict = json.loads(creds_json)
         
@@ -439,12 +440,12 @@ def get_subscribers() -> List[str]:
         
     except Exception as e:
         logger.error(f"Error accessing Google Sheets: {e}")
-        return [os.environ.get("FALLBACK_EMAIL", "jbranscome@gmail.com")]
+        return [os.environ.get("RECIPIENT_EMAIL", "jbranscome@gmail.com")]
 
 def send_email(html_content: str, recipients: List[str]):
     """Send the newsletter via Gmail SMTP."""
-    sender_email = os.environ["GMAIL_ADDRESS"]
-    sender_password = os.environ["GMAIL_APP_PASSWORD"]
+    sender_email = os.environ["EMAIL_ADDRESS"]
+    sender_password = os.environ["EMAIL_PASSWORD"]
     
     today = datetime.now().strftime("%B %d, %Y")
     subject = f"Appalachian Daily News - {today}"
