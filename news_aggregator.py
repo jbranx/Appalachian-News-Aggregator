@@ -430,7 +430,7 @@ def get_subscribers() -> List[str]:
         worksheet = spreadsheet.sheet1
         
         # Get all email addresses from column A (skip header)
-        emails = worksheet.col_values(1)[1:]
+        emails = worksheet.col_values(2)[1:]
         
         # Filter out empty cells and validate emails
         valid_emails = [email.strip() for email in emails if email and "@" in email]
