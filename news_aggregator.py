@@ -1,32 +1,33 @@
 #!/usr/bin/env python3
 """
 Appalachian Daily News Aggregator
-Daily email digest of regional news using RSS + Claude AI
+Fetches news from RSS feeds across the 13-state Appalachian region,
+uses Claude to generate a curated digest, and emails it to subscribers.
 """
 
 import os
-import sys
-import logging
-import feedparser
-from datetime import datetime, timedelta, timezone
 import json
-import gspread
-from google.oauth2.service_account import Credentials
-from dateutil import parser as date_parser
-import requests
-from anthropic import Anthropic
 import smtplib
+import feedparser
+import anthropic
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from typing import List, Dict, Any
-import html
-
+from datetime import datetime, timedelta
+from typing import List, Dict, Tuple
+import time
+import logging
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
-log = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
-# === CONFIGURATION ===
+# Google Sheets
+import gspread
+from google.oauth2.service_account import Credentials
+
+# ============================================
+# FREE / ACCESSIBLE SOURCES (30 + 3 new = 33 sources)
+# ============================================
 SOURCES = [
     # ============================================
     # MULTI-STATE & REGIONAL COVERAGE
@@ -36,9 +37,7 @@ SOURCES = [
     {"name": "Ohio Valley ReSource", "url": "https://ohiovalleyresource.org/feed/"},
     {"name": "Appalachian Voices", "url": "https://appvoices.org/feed/"},
     {"name": "Scalawag Magazine", "url": "https://scalawagmagazine.org/feed/"},
-    {"name": "Highlander Research", "url": "https://www.highlandercenter.org/feed/"},
     {"name": "Inside Climate News - Appalachia", "url": "https://insideclimatenews.org/category/appalachia/feed/"},
-    {"name": "Southern Environmental Law Center", "url": "https://www.southernenvironment.org/feed/"},
     
     # ============================================
     # KENTUCKY
@@ -46,6 +45,9 @@ SOURCES = [
     {"name": "Kentucky Lantern", "url": "https://kentuckylantern.com/feed/"},
     {"name": "WYMT Mountain News", "url": "https://www.wymt.com/news/?format=rss"},
     {"name": "Mountain Eagle", "url": "https://www.themountaineagle.com/feed/"},
+    {"name": "Louisville Public Media", "url": "https://www.lpm.org/rss.xml"},
+    {"name": "WEKU Eastern Kentucky", "url": "https://www.weku.org/rss.xml"},
+    {"name": "Harlan Enterprise", "url": "https://harlanenterprise.net/feed/"},
     
     # ============================================
     # WEST VIRGINIA
@@ -54,20 +56,11 @@ SOURCES = [
     {"name": "Mountain State Spotlight", "url": "https://mountainstatespotlight.org/feed/"},
     {"name": "WV Public Broadcasting", "url": "https://www.wvpublic.org/rss.xml"},
     {"name": "West Virginia MetroNews", "url": "https://wvmetronews.com/feed/"},
-    {"name": "Black By God West Virginia", "url": "https://blackbygod.com/feed/"},
     
     # ============================================
     # VIRGINIA
     # ============================================
     {"name": "Cardinal News", "url": "https://cardinalnews.org/feed/"},
-    
-    # ============================================
-    # PENNSYLVANIA (Northern coalfields)
-    # ============================================
-    {"name": "PublicSource", "url": "https://www.publicsource.org/feed/"},
-    {"name": "StateImpact Pennsylvania", "url": "https://stateimpact.npr.org/pennsylvania/feed/"},
-    {"name": "PA Post", "url": "https://papost.org/feed/"},
-    {"name": "Pittsburgh Current", "url": "https://pittsburghcurrent.com/feed/"},
     
     # ============================================
     # TENNESSEE
@@ -81,18 +74,13 @@ SOURCES = [
     {"name": "Carolina Public Press", "url": "https://carolinapublicpress.org/feed/"},
     {"name": "Smoky Mountain News", "url": "https://smokymountainnews.com/feed/"},
     {"name": "NC Health News", "url": "https://www.northcarolinahealthnews.org/feed/"},
-    {"name": "Mountain Times", "url": "https://mountaintimes.com/feed/"},
     {"name": "Blue Ridge Public Radio", "url": "https://www.bpr.org/rss.xml"},
     
     # ============================================
-    # SOUTH CAROLINA (Upstate ARC counties)
+    # PENNSYLVANIA
     # ============================================
-    {"name": "The Nerve SC", "url": "https://thenerve.org/feed/"},
-    
-    # ============================================
-    # GEORGIA (North Georgia ARC counties)
-    # ============================================
-    # Note: No non-paywall sources available - Rome News-Tribune is paywall
+    {"name": "PublicSource", "url": "https://www.publicsource.org/feed/"},
+    {"name": "StateImpact Pennsylvania", "url": "https://stateimpact.npr.org/pennsylvania/feed/"},
     
     # ============================================
     # ALABAMA (North Alabama ARC counties)
@@ -105,12 +93,34 @@ SOURCES = [
     {"name": "Mississippi Today", "url": "https://mississippitoday.org/feed/"},
     
     # ============================================
+    # GEORGIA (North Georgia ARC counties)
+    # ============================================
+    {"name": "Georgia Recorder", "url": "https://georgiarecorder.com/feed/"},
+    
+    # ============================================
+    # SOUTH CAROLINA (Upstate ARC counties)
+    # ============================================
+    {"name": "SC Daily Gazette", "url": "https://scdailygazette.com/feed/"},
+    
+    # ============================================
     # OHIO (Southeast Ohio ARC counties)
     # ============================================
-    {"name": "Athens News", "url": "https://www.athensnews.com/search/?q=&t=article&l=25&d=&d1=&d2=&s=start_time&sd=desc&f=rss"},
+    {"name": "Ohio Capital Journal", "url": "https://ohiocapitaljournal.com/feed/"},
+    
+    # ============================================
+    # NEW YORK (Southern Tier ARC counties)
+    # ============================================
+    {"name": "NY Focus", "url": "https://www.nysfocus.com/feed/"},
+    
+    # ============================================
+    # MARYLAND (Western MD ARC counties)
+    # ============================================
+    {"name": "Maryland Matters", "url": "https://www.marylandmatters.org/feed/"},
 ]
 
-# === PAYWALL SOURCES (Subscription Required) ===
+# ============================================
+# PAYWALL / SUBSCRIPTION SOURCES (10 sources)
+# ============================================
 PAYWALL_SOURCES = [
     # Kentucky
     {"name": "Lexington Herald-Leader", "url": "https://www.kentucky.com/news/?widgetName=rssfeed&widgetContentId=712015&getXmlFeed=true"},
@@ -120,341 +130,369 @@ PAYWALL_SOURCES = [
     
     # Virginia
     {"name": "Bristol Herald Courier", "url": "https://www.heraldcourier.com/search/?q=&t=article&l=25&d=&d1=&d2=&s=start_time&sd=desc&f=rss"},
-    {"name": "Roanoke Times", "url": "https://roanoke.com/search/?f=rss"},
+    {"name": "Roanoke Times", "url": "https://roanoke.com/search/?q=&t=article&l=25&d=&d1=&d2=&s=start_time&sd=desc&f=rss"},
     {"name": "Bluefield Daily Telegraph", "url": "https://www.bdtonline.com/search/?q=&t=article&l=25&d=&d1=&d2=&s=start_time&sd=desc&f=rss"},
     
     # Tennessee
     {"name": "Johnson City Press", "url": "https://www.johnsoncitypress.com/search/?q=&t=article&l=25&d=&d1=&d2=&s=start_time&sd=desc&f=rss"},
-    {"name": "Knoxville News Sentinel", "url": "https://www.knoxnews.com/search/?f=rss"},
+    {"name": "Knoxville News Sentinel", "url": "https://www.knoxnews.com/news/?widgetName=rssfeed&widgetContentId=712015&getXmlFeed=true"},
     
     # North Carolina
-    {"name": "Asheville Citizen-Times", "url": "https://www.citizen-times.com/search/?f=rss"},
+    {"name": "Asheville Citizen-Times", "url": "https://www.citizen-times.com/news/?widgetName=rssfeed&widgetContentId=712015&getXmlFeed=true"},
     
     # Georgia
     {"name": "Rome News-Tribune", "url": "https://www.northwestgeorgianews.com/rome/search/?q=&t=article&l=25&d=&d1=&d2=&s=start_time&sd=desc&f=rss"},
     
     # Pennsylvania
-    {"name": "Pittsburgh Post-Gazette", "url": "https://www.post-gazette.com/arc/outboundfeeds/rss/"},
+    {"name": "Pittsburgh Post-Gazette", "url": "https://www.post-gazette.com/rss/headlines-news"},
 ]
 
+# Configuration
 TIME_WINDOW_HOURS = 72
-MAX_PER_SOURCE = 20
-MIN_STORIES_WARNING = 5
+MAX_ARTICLES_PER_SOURCE = 20
 
-# === FETCH ARTICLES ===
-def fetch_articles() -> tuple:
-    """Fetch articles from both free and paywall sources"""
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=TIME_WINDOW_HOURS)
+def fetch_articles() -> Tuple[List[Dict], List[Dict]]:
+    """Fetch articles from all RSS feeds within the time window."""
+    cutoff = datetime.now() - timedelta(hours=TIME_WINDOW_HOURS)
+    free_articles = []
+    paywall_articles = []
     
-    def fetch_from_sources(sources, is_paywall=False):
-        articles = []
-        failed_sources = []
-        
-        for source in sources:
-            try:
-                log.info(f"Fetching {source['name']}...")
-                feed = feedparser.parse(source['url'])
-                if not feed.entries:
-                    log.warning(f"No entries from {source['name']}")
-                    failed_sources.append(source['name'])
-                    continue
-
-                count = 0
-                for entry in feed.entries[:MAX_PER_SOURCE]:
-                    pub_date = None
-                    if hasattr(entry, "published_parsed") and entry.published_parsed:
-                        pub_date = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
-                    elif hasattr(entry, "updated_parsed") and entry.updated_parsed:
-                        pub_date = datetime(*entry.updated_parsed[:6], tzinfo=timezone.utc)
+    # Fetch from free sources
+    for source in SOURCES:
+        try:
+            feed = feedparser.parse(source["url"])
+            count = 0
+            for entry in feed.entries[:MAX_ARTICLES_PER_SOURCE]:
+                try:
+                    # Try to get published date
+                    if hasattr(entry, 'published_parsed') and entry.published_parsed:
+                        pub_date = datetime(*entry.published_parsed[:6])
+                    elif hasattr(entry, 'updated_parsed') and entry.updated_parsed:
+                        pub_date = datetime(*entry.updated_parsed[:6])
                     else:
-                        try:
-                            pub_date = date_parser.parse(entry.get("published") or entry.get("updated", ""))
-                            if pub_date.tzinfo is None:
-                                pub_date = pub_date.replace(tzinfo=timezone.utc)
-                        except:
-                            pub_date = None
-
-                    if pub_date and pub_date >= cutoff:
-                        title = html.escape(entry.title) if entry.title else "No title"
-                        link = entry.link
-                        summary = html.escape(entry.summary) if hasattr(entry, "summary") and entry.summary else ""
-
-                        # Skip sports
-                        lower_title = title.lower()
-                        lower_summary = summary.lower()
-                        if any(kw in lower_title or kw in lower_summary for kw in ["game", "score", "sports", "athletics", "team", "player", "coach", "ncaa", "high school football"]):
-                            continue
-
-                        articles.append({
-                            "title": title,
-                            "link": link,
-                            "summary": summary,
-                            "source": source['name'],
-                            "pub_date": pub_date.isoformat(),
-                            "is_paywall": is_paywall
+                        pub_date = datetime.now()
+                    
+                    if pub_date >= cutoff:
+                        free_articles.append({
+                            "source": source["name"],
+                            "title": entry.get("title", "Untitled"),
+                            "link": entry.get("link", ""),
+                            "summary": entry.get("summary", entry.get("description", ""))[:500],
+                            "date": pub_date.strftime("%Y-%m-%d %H:%M")
                         })
                         count += 1
+                except Exception as e:
+                    logger.warning(f"Error parsing entry from {source['name']}: {e}")
+                    continue
+            logger.info(f"✓ {source['name']}: {count} articles")
+        except Exception as e:
+            logger.error(f"✗ {source['name']}: {e}")
+    
+    # Fetch from paywall sources
+    for source in PAYWALL_SOURCES:
+        try:
+            feed = feedparser.parse(source["url"])
+            count = 0
+            for entry in feed.entries[:MAX_ARTICLES_PER_SOURCE]:
+                try:
+                    if hasattr(entry, 'published_parsed') and entry.published_parsed:
+                        pub_date = datetime(*entry.published_parsed[:6])
+                    elif hasattr(entry, 'updated_parsed') and entry.updated_parsed:
+                        pub_date = datetime(*entry.updated_parsed[:6])
+                    else:
+                        pub_date = datetime.now()
+                    
+                    if pub_date >= cutoff:
+                        paywall_articles.append({
+                            "source": source["name"],
+                            "title": entry.get("title", "Untitled"),
+                            "link": entry.get("link", ""),
+                            "summary": entry.get("summary", entry.get("description", ""))[:500],
+                            "date": pub_date.strftime("%Y-%m-%d %H:%M"),
+                            "paywall": True
+                        })
+                        count += 1
+                except Exception as e:
+                    logger.warning(f"Error parsing entry from {source['name']}: {e}")
+                    continue
+            logger.info(f"✓ [PAYWALL] {source['name']}: {count} articles")
+        except Exception as e:
+            logger.error(f"✗ [PAYWALL] {source['name']}: {e}")
+    
+    logger.info(f"Total free articles: {len(free_articles)}")
+    logger.info(f"Total paywall articles: {len(paywall_articles)}")
+    
+    return free_articles, paywall_articles
 
-                log.info(f"✓ {source['name']}: {count} articles")
-            except Exception as e:
-                log.error(f"✗ Failed {source['name']}: {e}")
-                failed_sources.append(source['name'])
-        
-        if failed_sources:
-            log.warning(f"Failed sources: {', '.join(failed_sources)}")
-        
-        return articles
-    
-    # Fetch from both source types
-    free_articles = fetch_from_sources(SOURCES, is_paywall=False)
-    paywall_articles = fetch_from_sources(PAYWALL_SOURCES, is_paywall=True)
-    
-    # Sort by date
-    free_articles.sort(key=lambda x: x['pub_date'], reverse=True)
-    paywall_articles.sort(key=lambda x: x['pub_date'], reverse=True)
-    
-    log.info(f"Total free articles: {len(free_articles)}")
-    log.info(f"Total paywall articles: {len(paywall_articles)}")
-    
-    if len(free_articles) < MIN_STORIES_WARNING:
-        log.warning(f"Only {len(free_articles)} free articles — below warning threshold")
-    
-    return free_articles[:40], paywall_articles[:20]
-
-# === AI SUMMARIZATION ===
 def generate_digest(free_articles: List[Dict], paywall_articles: List[Dict]) -> str:
-    """Generate digest with separate free and paywall sections"""
-    client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-    model = "claude-sonnet-4-20250514"
-
-    # Format free articles
-    free_data = ""
-    for i, a in enumerate(free_articles, 1):
-        free_data += f"\n--- Article {i} ---\n"
-        free_data += f"Title: {a['title']}\n"
-        free_data += f"Link: {a['link']}\n"
-        free_data += f"Source: {a['source']}\n"
-        free_data += f"Summary: {a['summary'][:1000]}\n"
+    """Use Claude to generate a curated news digest."""
+    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     
-    # Format paywall articles
-    paywall_data = ""
-    for i, a in enumerate(paywall_articles, 1):
-        paywall_data += f"\n--- Paywall Article {i} ---\n"
-        paywall_data += f"Title: {a['title']}\n"
-        paywall_data += f"Link: {a['link']}\n"
-        paywall_data += f"Source: {a['source']}\n"
-        paywall_data += f"Summary: {a['summary'][:1000]}\n"
+    # Prepare article data for Claude
+    free_articles_text = json.dumps(free_articles, indent=2)
+    paywall_articles_text = json.dumps(paywall_articles, indent=2) if paywall_articles else "[]"
+    
+    prompt = f"""You are an expert Appalachian news curator. Your job is to create a compelling daily news digest 
+from the following articles gathered from news sources across the 13-state Appalachian region.
 
-    prompt = f"""You are creating a daily news digest for Appalachian communities. You have TWO types of articles:
+FREE/ACCESSIBLE ARTICLES:
+{free_articles_text}
 
-=== FREE ACCESS ARTICLES ===
-{free_data}
+PAYWALL/SUBSCRIPTION ARTICLES:
+{paywall_articles_text}
 
-=== SUBSCRIPTION REQUIRED ARTICLES ===
-{paywall_data}
+Please create a news digest following these rules:
 
-Create a comprehensive daily digest email with TWO SECTIONS using ONLY these HTML elements:
-- <h2>Section Title</h2> for main categories
-- <h3>Story Headline</h3> for individual stories
-- <p>Content here</p> for all text paragraphs
-- <a href="url">Link text</a> for article links
-- <strong>text</strong> for emphasis
+1. SELECT the most important and interesting stories (aim for 15-25 total from free sources, plus any relevant paywall stories)
+2. EXCLUDE: Sports scores/games, weather forecasts, obituaries, event calendars, crime blotter items, and stories not relevant to Appalachia
+3. PRIORITIZE: Economic development, policy/politics, environment, energy/coal, healthcare, education, culture, and community stories
+4. GROUP stories by theme or topic (e.g., "Energy & Environment", "Economic Development", "Health & Healthcare", etc.)
+5. For each story, provide:
+   - A compelling headline (can be edited for clarity)
+   - The source name
+   - A 1-2 sentence summary
+   - The link
 
-DO NOT use Markdown (no #, **, or ---). Only use HTML tags.
+FORMAT YOUR RESPONSE AS HTML with this structure:
 
-SECTION 1: FREE ACCESS STORIES
-Organize these stories into relevant categories such as:
-- Economy & Jobs
-- Energy & Environment  
-- Health & Social Issues
-- Education
-- Politics & Policy
-- Community & Culture
-- Infrastructure & Broadband
+<h2>🏔️ [Theme Name]</h2>
+<div class="story">
+<h3><a href="[link]">[Headline]</a></h3>
+<p class="source">[Source Name]</p>
+<p class="summary">[Your 1-2 sentence summary]</p>
+</div>
 
-SECTION 2: PREMIUM SOURCES (Subscription Required)
-After all free stories, add this exact heading:
-<h2 style="color: #8B4513; border-left-color: #8B4513;">📰 Premium Sources (Subscription Required)</h2>
-<p style="color: #666; font-style: italic; margin-bottom: 20px;">The following stories require paid subscriptions but may be of interest to our readers:</p>
+[Repeat for each story in this theme]
 
-Then list paywall stories with the 🔒 emoji in each headline like this:
-<h3>🔒 Story Headline Here</h3>
+After all free source stories, if there are paywall articles, add a section:
 
-IMPORTANT: Do NOT include any sports stories from either section. Skip all articles about sports, athletics, games, or sporting events.
+<h2>📰 Premium Sources (Subscription Required)</h2>
+<p class="premium-note">The following stories are from subscription-based publications. Links may require a subscription to access.</p>
+[Include paywall stories with 🔒 icon before headline]
 
-For each story:
-1. Write a clear, engaging <h3> headline
-2. Summarize in 2-3 sentences in a <p> tag
-3. Include source and link: <p><strong>Source:</strong> <a href="link">Read more at source_name</a></p>
+If no paywall articles are relevant or available, you can skip the Premium Sources section entirely.
 
-Include AT LEAST 15 free stories and 8-10 paywall stories. Use a warm, community-focused tone. Start directly with <h2> tags for the first free category.
-"""
+Make the digest engaging and informative. Focus on stories that matter to people living in and caring about Appalachia."""
 
-    try:
-        log.info("Sending to Claude AI...")
-        response = client.messages.create(
-            model=model,
-            max_tokens=5000,
-            temperature=0.7,
-            messages=[{"role": "user", "content": prompt}]
-        )
-        html_content = response.content[0].text.strip()
-        log.info("AI digest generated with paywall section.")
-        return html_content
-    except Exception as e:
-        log.error(f"Claude API failed: {e}")
-        raise
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            message = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=8000,
+                messages=[
+                    {"role": "user", "content": prompt}
+                ]
+            )
+            return message.content[0].text
+        except anthropic.APIError as e:
+            logger.warning(f"API attempt {attempt + 1} failed: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(5 * (attempt + 1))
+            else:
+                raise
 
-# === HTML EMAIL TEMPLATE ===
-def build_email(html_content: str, article_count: int) -> str:
+def build_email(digest: str) -> str:
+    """Build the complete HTML email."""
     today = datetime.now().strftime("%B %d, %Y")
-    full_html = f'''<!DOCTYPE html>
+    
+    html = f"""<!DOCTYPE html>
 <html>
 <head>
-    <meta charset="UTF-8">
-    <title>Appalachian Daily - {today}</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Appalachian Daily News - {today}</title>
     <style>
-        body {{ margin: 0; background: #f4f4f4; padding: 20px 0; font-family: Georgia, serif; }}
-        .container {{ max-width: 650px; margin: 0 auto; background: white; box-shadow: 0 4px 12px rgba(0,0,0,0.1); border-radius: 8px; overflow: hidden; }}
-        .header {{ background: linear-gradient(135deg, #1e4620, #2d5016, #4a7c59); color: white; padding: 30px; text-align: center; }}
-        .mountain {{ font-size: 42px; }}
-        h1 {{ margin: 10px 0; font-size: 36px; font-weight: 300; }}
-        .subtitle {{ margin: 5px 0; font-size: 18px; opacity: 0.9; }}
-        .body {{ background: white; padding: 40px 35px; color: #2c3e50; line-height: 1.7; font-size: 16px; }}
-        h2 {{ color: #2d5016; font-size: 24px; font-weight: 600; border-left: 5px solid #4a7c59; padding-left: 15px; margin: 35px 0 20px 0; }}
-        h3 {{ color: #1e4620; font-size: 19px; margin: 25px 0 10px 0; }}
-        p {{ margin: 10px 0; }}
-        a {{ color: #2d5016; text-decoration: none; }}
-        a:hover {{ text-decoration: underline; }}
-        .footer {{ background: #34495e; color: #ecf0f1; padding: 30px; text-align: center; font-size: 14px; }}
-        .footer a {{ color: #ecf0f1; }}
-        .subscribe-btn {{ background: #2d5016; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: 600; font-size: 16px; display: inline-block; margin: 10px 0; }}
-        .subscribe-btn:hover {{ background: #1e4620; }}
-        @media (max-width: 600px) {{ .body {{ padding: 20px; }} }}
+        body {{
+            font-family: Georgia, 'Times New Roman', serif;
+            line-height: 1.6;
+            max-width: 700px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }}
+        .container {{
+            background-color: white;
+            padding: 30px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }}
+        .header {{
+            text-align: center;
+            border-bottom: 3px solid #2c5530;
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+        }}
+        .header h1 {{
+            color: #2c5530;
+            margin: 0;
+            font-size: 28px;
+        }}
+        .header .date {{
+            color: #666;
+            font-style: italic;
+            margin-top: 5px;
+        }}
+        h2 {{
+            color: #2c5530;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 10px;
+            margin-top: 30px;
+        }}
+        .story {{
+            margin-bottom: 25px;
+            padding-left: 15px;
+            border-left: 3px solid #e0e0e0;
+        }}
+        .story h3 {{
+            margin: 0 0 5px 0;
+            font-size: 18px;
+        }}
+        .story h3 a {{
+            color: #1a5276;
+            text-decoration: none;
+        }}
+        .story h3 a:hover {{
+            text-decoration: underline;
+        }}
+        .source {{
+            color: #888;
+            font-size: 14px;
+            margin: 5px 0;
+            font-style: italic;
+        }}
+        .summary {{
+            color: #333;
+            margin: 10px 0 0 0;
+        }}
+        .premium-note {{
+            background-color: #fff9e6;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 14px;
+            color: #856404;
+        }}
+        .footer {{
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+            text-align: center;
+            font-size: 14px;
+            color: #666;
+        }}
+        .footer a {{
+            color: #2c5530;
+        }}
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <div class="mountain">🏔️</div>
-            <h1>Appalachian Daily</h1>
-            <p class="subtitle">{today} • {article_count} stories</p>
+            <h1>🏔️ Appalachian Daily News</h1>
+            <div class="date">{today}</div>
         </div>
-        <div class="body">
-            {html_content}
-        </div>
+        
+        {digest}
+        
         <div class="footer">
-            <p>Curated from 40+ trusted Appalachian news sources.</p>
-            <p style="text-align: center; margin: 20px 0;">
-                <a class="subscribe-btn" href="https://jbranx.github.io/Appalachian-News-Aggregator">Subscribe for Daily Updates</a>
-            </p>
-           <p>Appalachian Daily is a news aggregator created by Jim Branscome. You can provide him feedback at <a href="mailto:jbranscome@gmail.com">jbranscome@gmail.com</a>.</p>
-            <p><a href="https://github.com/jbranx/Appalachian-News-Aggregator">Powered by open-source automation</a></p>
-        </div>
+            <p>Curated from 40+ trusted Appalachian news sources across the 13-state region.</p>
+            <p>Questions or feedback? Reply to this email.</p>
+            <p><a href="https://docs.google.com/forms/d/e/1FAIpQLSeqq0YbOTAI0bz0PbzTSbUBbK2usl2E0GDUo9glISXueAdfXg/viewform">Unsubscribe</a></p>
         </div>
     </div>
 </body>
-</html>'''
-    return full_html
+</html>"""
+    
+    return html
 
-# === GOOGLE SHEETS & EMAIL ===
-def get_subscribers():
-    """Read subscriber emails from Google Sheet"""
+def get_subscribers() -> List[str]:
+    """Get subscriber list from Google Sheets."""
     try:
-        scopes = ['https://www.googleapis.com/auth/spreadsheets.readonly']
-        creds_json = os.environ.get('GOOGLE_SHEETS_CREDENTIALS')
-        
+        # Load credentials from environment variable
+        creds_json = os.environ.get("GOOGLE_SHEETS_CREDENTIALS")
         if not creds_json:
-            print("⚠️ No Google Sheets credentials - using fallback email")
-            return [os.environ.get('RECIPIENT_EMAIL', '')]
+            logger.warning("No Google Sheets credentials found, using fallback email")
+            return [os.environ.get("FALLBACK_EMAIL", "jbranscome@gmail.com")]
         
         creds_dict = json.loads(creds_json)
+        
+        scopes = [
+            'https://www.googleapis.com/auth/spreadsheets.readonly'
+        ]
+        
         credentials = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-        client = gspread.authorize(credentials)
+        gc = gspread.authorize(credentials)
         
-        sheet = client.open_by_key("12n0VY54S1jjl-KBrL7O_BID_Q90jidifJ_LthmwDYVk").sheet1
-        records = sheet.get_all_records()
+        # Open the spreadsheet by ID
+        sheet_id = "12n0VY54S1jjl-KBrL7O_BID_Q90jidifJ_LthmwDYVk"
+        spreadsheet = gc.open_by_key(sheet_id)
+        worksheet = spreadsheet.sheet1
         
-        subscribers = []
-        for record in records:
-            email = record.get('Email Address', '').strip()
-            if email and '@' in email:
-                subscribers.append(email)
+        # Get all email addresses from column A (skip header)
+        emails = worksheet.col_values(1)[1:]
         
-        print(f"✅ Found {len(subscribers)} subscribers")
-        return subscribers
+        # Filter out empty cells and validate emails
+        valid_emails = [email.strip() for email in emails if email and "@" in email]
+        
+        logger.info(f"Found {len(valid_emails)} subscribers")
+        return valid_emails
         
     except Exception as e:
-        print(f"❌ Error reading Google Sheets: {e}")
-        return [os.environ.get('RECIPIENT_EMAIL', '')]
+        logger.error(f"Error accessing Google Sheets: {e}")
+        return [os.environ.get("FALLBACK_EMAIL", "jbranscome@gmail.com")]
 
-
-def send_to_subscribers(html_content, subject="Appalachian Daily Digest"):
-    """Send email to all subscribers"""
-    subscribers = get_subscribers()
+def send_email(html_content: str, recipients: List[str]):
+    """Send the newsletter via Gmail SMTP."""
+    sender_email = os.environ["GMAIL_ADDRESS"]
+    sender_password = os.environ["GMAIL_APP_PASSWORD"]
     
-    if not subscribers:
-        print("⚠️ No subscribers found")
-        return
+    today = datetime.now().strftime("%B %d, %Y")
+    subject = f"Appalachian Daily News - {today}"
     
-    smtp_server = "smtp.gmail.com"
-    smtp_port = 587
-    sender_email = os.environ['EMAIL_ADDRESS']
-    sender_password = os.environ['EMAIL_PASSWORD']
-    
-    success_count = 0
-    fail_count = 0
-    
-    for recipient in subscribers:
+    for recipient in recipients:
         try:
-            message = MIMEMultipart('alternative')
-            message['Subject'] = subject
-            message['From'] = f"Appalachian Daily <{sender_email}>"
-            message['To'] = recipient
+            msg = MIMEMultipart('alternative')
+            msg['Subject'] = subject
+            msg['From'] = f"Appalachian Daily News <{sender_email}>"
+            msg['To'] = recipient
             
-            unsubscribe_url = "https://docs.google.com/forms/d/e/1FAIpQLSeqq0YbOTAI0bz0PbzTSbUBbK2usl2E0GDUo9glISXueAdfXg/viewform"
-            html_with_unsub = html_content.replace(
-                '</body>',
-                f'<div style="text-align: center; padding: 20px; color: #666; font-size: 12px;">'
-                f'<a href="{unsubscribe_url}" style="color: #2d5016;">Unsubscribe</a> | '
-                f'Appalachian Daily Newsletter</div></body>'
-            )
+            html_part = MIMEText(html_content, 'html')
+            msg.attach(html_part)
             
-            html_part = MIMEText(html_with_unsub, 'html')
-            message.attach(html_part)
-            
-            with smtplib.SMTP(smtp_server, smtp_port) as server:
-                server.starttls()
+            with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
                 server.login(sender_email, sender_password)
-                server.send_message(message)
+                server.sendmail(sender_email, recipient, msg.as_string())
             
-            success_count += 1
-            print(f"✅ Sent to {recipient}")
+            logger.info(f"✓ Sent to {recipient}")
+            time.sleep(1)  # Rate limiting
             
         except Exception as e:
-            fail_count += 1
-            print(f"❌ Failed to send to {recipient}: {e}")
-    
-    print(f"\n📊 Results: {success_count} sent, {fail_count} failed")
+            logger.error(f"✗ Failed to send to {recipient}: {e}")
 
-
-# === MAIN ===
 def main():
-    log.info("Starting Appalachian Daily News Aggregator")
-
+    """Main function to run the news aggregator."""
+    logger.info("Starting Appalachian Daily News aggregator...")
+    
+    # Fetch articles from both free and paywall sources
     free_articles, paywall_articles = fetch_articles()
-    if len(free_articles) < 3:
-        log.error("Too few articles to proceed.")
-        sys.exit(1)
-    try:
-        digest_html = generate_digest(free_articles, paywall_articles)
-    except Exception as e:
-        log.error(f"AI summarization failed: {e}")
-        sys.exit(1)
-    story_count = digest_html.count("<h3>")
-    email_html = build_email(digest_html, story_count)
-    send_to_subscribers(email_html)
-    log.info(f"Digest complete: {story_count} stories")
+    
+    if not free_articles and not paywall_articles:
+        logger.warning("No articles found. Exiting.")
+        return
+    
+    # Generate digest with Claude
+    logger.info("Generating digest with Claude...")
+    digest = generate_digest(free_articles, paywall_articles)
+    
+    # Build email
+    html_email = build_email(digest)
+    
+    # Get subscribers and send
+    subscribers = get_subscribers()
+    logger.info(f"Sending to {len(subscribers)} subscribers...")
+    send_email(html_email, subscribers)
+    
+    logger.info("Done!")
 
 if __name__ == "__main__":
     main()
