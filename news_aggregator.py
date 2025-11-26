@@ -395,9 +395,10 @@ def build_email(digest: str) -> str:
         
         {digest}
         
-        <div class="footer">
+       <div class="footer">
             <p>Curated from 40+ trusted Appalachian news sources across the 13-state region.</p>
             <p>Questions or feedback? Reply to this email.</p>
+            <p>📬 Know someone who should read this? <a href="https://jbranx.github.io/Appalachian-News-Aggregator/">Share this link</a> so they can subscribe.</p>
             <p><a href="https://docs.google.com/forms/d/e/1FAIpQLSeqq0YbOTAI0bz0PbzTSbUBbK2usl2E0GDUo9glISXueAdfXg/viewform">Unsubscribe</a></p>
         </div>
     </div>
@@ -405,7 +406,6 @@ def build_email(digest: str) -> str:
 </html>"""
     
     return html
-
 def get_subscribers() -> List[str]:
     """Get subscriber list from Google Sheets."""
     try:
