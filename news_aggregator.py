@@ -45,8 +45,8 @@ SOURCES = [
     {"name": "Kentucky Lantern", "url": "https://kentuckylantern.com/feed/"},
     {"name": "WYMT Mountain News", "url": "https://www.wymt.com/news/?format=rss"},
     {"name": "Mountain Eagle", "url": "https://www.themountaineagle.com/feed/"},
-    {"name": "Louisville Public Media", "url": "https://www.lpm.org/rss.xml"},
-    {"name": "WEKU Eastern Kentucky", "url": "https://www.weku.org/rss.xml"},
+    {"name": "Louisville Public Media", "url": "https://www.lpm.org/news/latest.rss"},
+    {"name": "WEKU Eastern Kentucky", "url": "https://www.weku.org/local-news/feed"},
     {"name": "Harlan Enterprise", "url": "https://harlanenterprise.net/feed/"},
     
     # ============================================
