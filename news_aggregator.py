@@ -53,6 +53,7 @@ SOURCES = [
     # WEST VIRGINIA
     # ============================================
     {"name": "West Virginia Watch", "url": "https://westvirginiawatch.com/feed/"},
+    {"name": "Black By God", "url": "https://blackbygod.org/feed/"},
     {"name": "Mountain State Spotlight", "url": "https://mountainstatespotlight.org/feed/"},
     {"name": "WV Public Broadcasting", "url": "https://www.wvpublic.org/rss.xml"},
     {"name": "West Virginia MetroNews", "url": "https://wvmetronews.com/feed/"},
