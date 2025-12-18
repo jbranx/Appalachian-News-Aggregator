@@ -247,8 +247,8 @@ Please create a news digest following these rules:
 
 1. SELECT the most important and interesting stories (aim for 15-25 total from free sources, plus any relevant paywall stories)
 2. EXCLUDE: Sports scores/games, weather forecasts, obituaries, event calendars, crime blotter items, and stories not relevant to Appalachia
-3. PRIORITIZE: Economic development, policy/politics, environment, energy/coal, healthcare, education, culture, and community stories
-4. GROUP stories by theme or topic (e.g., "Energy & Environment", "Economic Development", "Health & Healthcare", etc.)
+3. PRIORITIZE: Economic development, policy/politics, environment, energy/coal, healthcare, education, culture, community stories, Black Appalachians, African American history, civil rights, and Black lung disease
+4. GROUP stories by theme or topic (e.g., "Energy & Environment", "Economic Development", "Health & Healthcare", "Black Appalachians & Civil Rights", etc.)
 5. For each story, provide:
    - A compelling headline (can be edited for clarity)
    - The source name
