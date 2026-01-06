@@ -153,17 +153,47 @@ PAYWALL_SOURCES = [
 TIME_WINDOW_HOURS = 72
 MAX_ARTICLES_PER_SOURCE = 20
 
+# Sources that publish less frequently get a longer window (7 days)
+SLOW_SOURCES = [
+    "Mountain State Spotlight",
+    "Black By God",
+    "100 Days in Appalachia",
+    "Scalawag Magazine",
+    "Inside Climate News - Appalachia",
+    "Ohio Valley ReSource",
+    "Appalachian Voices"
+]
+SLOW_SOURCE_HOURS = 168
+
 def fetch_articles() -> Tuple[List[Dict], List[Dict]]:
     """Fetch articles from all RSS feeds within the time window."""
-    cutoff = datetime.now() - timedelta(hours=TIME_WINDOW_HOURS)
+    default_cutoff = datetime.now() - timedelta(hours=TIME_WINDOW_HOURS)
+    slow_cutoff = datetime.now() - timedelta(hours=SLOW_SOURCE_HOURS)
     free_articles = []
     paywall_articles = []
     
     # Fetch from free sources
     for source in SOURCES:
         try:
+            # Use longer window for investigative/slower sources
+            if source["name"] in SLOW_SOURCES:
+                cutoff = slow_cutoff
+            else:
+                cutoff = default_cutoff
+            
             feed = feedparser.parse(source["url"])
             count = 0
+            
+            # Diagnostic logging for Mountain State Spotlight
+            if source["name"] == "Mountain State Spotlight":
+                logger.info(f"DEBUG MSS: Feed has {len(feed.entries)} total entries")
+                logger.info(f"DEBUG MSS: Using cutoff date {cutoff}")
+                for i, entry in enumerate(feed.entries[:5]):
+                    pub = getattr(entry, 'published', 'NO published')
+                    upd = getattr(entry, 'updated', 'NO updated')
+                    logger.info(f"DEBUG MSS entry {i}: {entry.get('title', 'No title')[:60]}")
+                    logger.info(f"  published: {pub}, updated: {upd}")
+            
             for entry in feed.entries[:MAX_ARTICLES_PER_SOURCE]:
                 try:
                     # Try to get published date
@@ -204,7 +234,7 @@ def fetch_articles() -> Tuple[List[Dict], List[Dict]]:
                     else:
                         pub_date = datetime.now()
                     
-                    if pub_date >= cutoff:
+                    if pub_date >= default_cutoff:
                         paywall_articles.append({
                             "source": source["name"],
                             "title": entry.get("title", "Untitled"),
@@ -407,6 +437,7 @@ def build_email(digest: str) -> str:
 </html>"""
     
     return html
+
 def get_subscribers() -> List[str]:
     """Get subscriber list from Google Sheets."""
     try:
