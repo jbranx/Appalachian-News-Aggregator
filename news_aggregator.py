@@ -459,7 +459,7 @@ def get_subscribers() -> List[str]:
         # Open the spreadsheet by ID
         sheet_id = "12n0VY54S1jjl-KBrL7O_BID_Q90jidifJ_LthmwDYVk"
         spreadsheet = gc.open_by_key(sheet_id)
-        worksheet = spreadsheet.sheet1
+        worksheet = spreadsheet.worksheet("Subscribers")
         
         # Get all email addresses from column A (skip header)
         emails = worksheet.col_values(2)[1:]
