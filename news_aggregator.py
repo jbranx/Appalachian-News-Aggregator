@@ -16,6 +16,10 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Tuple
 import time
 import logging
+import socket
+
+# Set global 30-second timeout for all network calls (prevents infinite hangs)
+socket.setdefaulttimeout(30)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -258,7 +262,8 @@ def fetch_articles() -> Tuple[List[Dict], List[Dict]]:
 
 def generate_digest(free_articles: List[Dict], paywall_articles: List[Dict]) -> str:
     """Use Claude to generate a curated news digest."""
-    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    # 120-second timeout prevents indefinite API hangs
+    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"], timeout=120.0)
     
     # Prepare article data for Claude
     free_articles_text = json.dumps(free_articles, indent=2)
@@ -500,7 +505,8 @@ def send_email(html_content: str, recipients: List[str]):
             html_part = MIMEText(html_content, 'html')
             msg.attach(html_part)
             
-            with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+            # 30-second timeout prevents indefinite SMTP hangs
+            with smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=30) as server:
                 server.login(sender_email, sender_password)
                 server.sendmail(sender_email, recipient, msg.as_string())
             
