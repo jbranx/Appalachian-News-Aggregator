@@ -289,6 +289,7 @@ Please create a news digest following these rules:
    - The source name
    - A 1-2 sentence summary
    - The link
+6. LABELING / OPINION CONTENT: Be careful with opinion content. Do NOT call a piece an "editorial," "op-ed," or "analysis" unless the source explicitly labels it that way. Many of these outlets run signed columns by outside contributors under labels like "Commentary" or "Opinion" - these are the author's views, not the publication's position, and must never be attributed to the publication itself. If a piece is clearly opinion, describe it neutrally (for example, "In a commentary, [author] argues...") rather than guessing a genre. When unsure, summarize what the piece says and leave the genre out.
 
 FORMAT YOUR RESPONSE AS HTML with this structure:
 
