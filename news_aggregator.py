@@ -262,8 +262,8 @@ def fetch_articles() -> Tuple[List[Dict], List[Dict]]:
 
 def generate_digest(free_articles: List[Dict], paywall_articles: List[Dict]) -> str:
     """Use Claude to generate a curated news digest."""
-    # 120-second timeout prevents indefinite API hangs
-    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"], timeout=120.0)
+    # 300-second timeout prevents indefinite API hangs (raised from 120s for larger digests)
+    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"], timeout=300.0)
     
     # Prepare article data for Claude
     free_articles_text = json.dumps(free_articles, indent=2)
