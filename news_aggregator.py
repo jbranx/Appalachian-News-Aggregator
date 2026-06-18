@@ -594,6 +594,15 @@ def main():
     
     # Get subscribers and send
     subscribers = get_subscribers()
+
+    # TEST MODE (set by the manual "Send only to me" checkbox in workflow_dispatch):
+    # reroute the whole send to just me. Scheduled runs leave TEST_MODE empty,
+    # so they always go to the full subscriber list.
+    if os.environ.get("TEST_MODE", "").strip().lower() == "true":
+        test_recipient = os.environ.get("RECIPIENT_EMAIL") or os.environ.get("EMAIL_ADDRESS")
+        logger.info(f"TEST MODE enabled - sending only to {test_recipient}")
+        subscribers = [test_recipient]
+
     logger.info(f"Sending to {len(subscribers)} subscribers...")
     send_email(html_email, subscribers)
     
