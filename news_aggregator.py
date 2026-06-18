@@ -7,6 +7,7 @@ uses Claude to generate a curated digest, and emails it to subscribers.
 
 import os
 import json
+import re
 import smtplib
 import feedparser
 import anthropic
@@ -169,6 +170,52 @@ SLOW_SOURCES = [
 ]
 SLOW_SOURCE_HOURS = 168
 
+# ============================================
+# COMMENTARY / OPINION DETECTION
+# Deterministic - keyed on the source's own URL path and RSS category tags,
+# NOT on the language model's reading of prose. This is what keeps labeling
+# consistent run to run.
+# ============================================
+COMMENTARY_URL_MARKERS = (
+    "/commentary/", "/opinion/", "/op-ed/", "/oped/", "/editorial/",
+    "/editorials/", "/columns/", "/column/", "/perspective/",
+    "/perspectives/", "/voices/", "/viewpoint/",
+)
+COMMENTARY_TAG_TERMS = {
+    "commentary", "opinion", "op-ed", "oped", "editorial", "editorials",
+    "column", "columns", "perspective", "perspectives", "voices", "viewpoint",
+}
+
+def is_commentary(link, tags) -> bool:
+    """Flag opinion/commentary from the URL path or RSS category tags.
+    Deterministic - does not depend on the language model's reading of prose."""
+    link_l = (link or "").lower()
+    if any(marker in link_l for marker in COMMENTARY_URL_MARKERS):
+        return True
+    if tags:
+        for tag in tags:
+            term = (tag.get("term") or "").strip().lower()
+            if term in COMMENTARY_TAG_TERMS:
+                return True
+    return False
+
+def enforce_commentary_labels(digest_html: str, commentary_links: set) -> str:
+    """Guarantee a [Commentary] tag on opinion pieces regardless of model output.
+    Deterministic safety net keyed on the article URL: even if the model forgets
+    the tag, this adds it; if the model already added it, this leaves it alone."""
+    pattern = re.compile(
+        r'(?P<open><h3>\s*<a\s+href="(?P<href>[^"]+)"[^>]*>)(?P<text>.*?)(?P<close></a>)',
+        re.IGNORECASE | re.DOTALL,
+    )
+    def tag_anchor(match):
+        href = match.group("href")
+        text = match.group("text")
+        flagged = (href in commentary_links) or any(m in href.lower() for m in COMMENTARY_URL_MARKERS)
+        if flagged and "[commentary]" not in text.lower():
+            text = f"[Commentary] {text}"
+        return match.group("open") + text + match.group("close")
+    return pattern.sub(tag_anchor, digest_html)
+
 def fetch_articles() -> Tuple[List[Dict], List[Dict]]:
     """Fetch articles from all RSS feeds within the time window."""
     default_cutoff = datetime.now() - timedelta(hours=TIME_WINDOW_HOURS)
@@ -214,6 +261,7 @@ def fetch_articles() -> Tuple[List[Dict], List[Dict]]:
                             "title": entry.get("title", "Untitled"),
                             "link": entry.get("link", ""),
                             "summary": entry.get("summary", entry.get("description", ""))[:500],
+                            "commentary": is_commentary(entry.get("link", ""), entry.get("tags")),
                             "date": pub_date.strftime("%Y-%m-%d %H:%M")
                         })
                         count += 1
@@ -244,6 +292,7 @@ def fetch_articles() -> Tuple[List[Dict], List[Dict]]:
                             "title": entry.get("title", "Untitled"),
                             "link": entry.get("link", ""),
                             "summary": entry.get("summary", entry.get("description", ""))[:500],
+                            "commentary": is_commentary(entry.get("link", ""), entry.get("tags")),
                             "date": pub_date.strftime("%Y-%m-%d %H:%M"),
                             "paywall": True
                         })
@@ -285,11 +334,11 @@ Please create a news digest following these rules:
 3. PRIORITIZE: Economic development, policy/politics, environment, energy/coal, healthcare, education, culture, community stories, Black Appalachians, African American history, civil rights, and Black lung disease
 4. GROUP stories by theme or topic (e.g., "Energy & Environment", "Economic Development", "Health & Healthcare", "Black Appalachians & Civil Rights", etc.)
 5. For each story, provide:
-   - A compelling headline (can be edited for clarity)
+   - A headline. For straight news you may lightly edit for clarity. For commentary (see rule 6) you MUST keep the author's original headline unchanged - rewriting an argument into a declarative statement misrepresents the author's opinion as established fact.
    - The source name
    - A 1-2 sentence summary
    - The link
-6. LABELING / OPINION CONTENT: Be careful with opinion content. Do NOT call a piece an "editorial," "op-ed," or "analysis" unless the source explicitly labels it that way. Many of these outlets run signed columns by outside contributors under labels like "Commentary" or "Opinion" - these are the author's views, not the publication's position, and must never be attributed to the publication itself. If a piece is clearly opinion, describe it neutrally (for example, "In a commentary, [author] argues...") rather than guessing a genre. When unsure, summarize what the piece says and leave the genre out.
+6. LABELING / OPINION CONTENT: Each article includes a "commentary" field. If "commentary" is true, the source has filed the piece as opinion - you MUST begin its headline with the exact prefix "[Commentary] ", keep the author's original headline, and summarize it as the author's view (for example, "[author] argues..."). Never attribute a signed commentary to the publication itself; it is the author's view, not the outlet's position. If "commentary" is false or absent, do NOT guess a genre or call anything an "editorial," "op-ed," or "analysis" - simply summarize what the piece says.
 
 FORMAT YOUR RESPONSE AS HTML with this structure:
 
@@ -531,6 +580,14 @@ def main():
     # Generate digest with Claude
     logger.info("Generating digest with Claude...")
     digest = generate_digest(free_articles, paywall_articles)
+    
+    # Deterministic safety net: enforce [Commentary] tags from the source signal,
+    # independent of what the model produced.
+    commentary_links = {
+        a["link"] for a in (free_articles + paywall_articles)
+        if a.get("commentary") and a.get("link")
+    }
+    digest = enforce_commentary_labels(digest, commentary_links)
     
     # Build email
     html_email = build_email(digest)
