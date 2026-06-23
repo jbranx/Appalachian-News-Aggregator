@@ -129,28 +129,15 @@ SOURCES = [
 # PAYWALL / SUBSCRIPTION SOURCES (10 sources)
 # ============================================
 PAYWALL_SOURCES = [
-    # Kentucky
     {"name": "Lexington Herald-Leader", "url": "https://www.kentucky.com/news/?widgetName=rssfeed&widgetContentId=712015&getXmlFeed=true"},
-    
-    # West Virginia
     {"name": "Charleston Gazette-Mail", "url": "https://www.wvgazettemail.com/search/?q=&t=article&l=25&d=&d1=&d2=&s=start_time&sd=desc&c[]=news*&f=rss"},
-    
-    # Virginia
     {"name": "Bristol Herald Courier", "url": "https://www.heraldcourier.com/search/?q=&t=article&l=25&d=&d1=&d2=&s=start_time&sd=desc&f=rss"},
     {"name": "Roanoke Times", "url": "https://roanoke.com/search/?q=&t=article&l=25&d=&d1=&d2=&s=start_time&sd=desc&f=rss"},
     {"name": "Bluefield Daily Telegraph", "url": "https://www.bdtonline.com/search/?q=&t=article&l=25&d=&d1=&d2=&s=start_time&sd=desc&f=rss"},
-    
-    # Tennessee
     {"name": "Johnson City Press", "url": "https://www.johnsoncitypress.com/search/?q=&t=article&l=25&d=&d1=&d2=&s=start_time&sd=desc&f=rss"},
     {"name": "Knoxville News Sentinel", "url": "https://www.knoxnews.com/news/?widgetName=rssfeed&widgetContentId=712015&getXmlFeed=true"},
-    
-    # North Carolina
     {"name": "Asheville Citizen-Times", "url": "https://www.citizen-times.com/news/?widgetName=rssfeed&widgetContentId=712015&getXmlFeed=true"},
-    
-    # Georgia
     {"name": "Rome News-Tribune", "url": "https://www.northwestgeorgianews.com/rome/search/?q=&t=article&l=25&d=&d1=&d2=&s=start_time&sd=desc&f=rss"},
-    
-    # Pennsylvania
     {"name": "Pittsburgh Post-Gazette", "url": "https://www.post-gazette.com/rss/headlines-news"},
 ]
 
@@ -172,9 +159,6 @@ SLOW_SOURCE_HOURS = 168
 
 # ============================================
 # COMMENTARY / OPINION DETECTION
-# Deterministic - keyed on the source's own URL path and RSS category tags,
-# NOT on the language model's reading of prose. This is what keeps labeling
-# consistent run to run.
 # ============================================
 COMMENTARY_URL_MARKERS = (
     "/commentary/", "/opinion/", "/op-ed/", "/oped/", "/editorial/",
@@ -187,8 +171,7 @@ COMMENTARY_TAG_TERMS = {
 }
 
 def is_commentary(link, tags) -> bool:
-    """Flag opinion/commentary from the URL path or RSS category tags.
-    Deterministic - does not depend on the language model's reading of prose."""
+    """Flag opinion/commentary from the URL path or RSS category tags."""
     link_l = (link or "").lower()
     if any(marker in link_l for marker in COMMENTARY_URL_MARKERS):
         return True
@@ -200,9 +183,7 @@ def is_commentary(link, tags) -> bool:
     return False
 
 def enforce_commentary_labels(digest_html: str, commentary_links: set) -> str:
-    """Guarantee a [Commentary] tag on opinion pieces regardless of model output.
-    Deterministic safety net keyed on the article URL: even if the model forgets
-    the tag, this adds it; if the model already added it, this leaves it alone."""
+    """Guarantee a [Commentary] tag on opinion pieces regardless of model output."""
     pattern = re.compile(
         r'(?P<open><h3>\s*<a\s+href="(?P<href>[^"]+)"[^>]*>)(?P<text>.*?)(?P<close></a>)',
         re.IGNORECASE | re.DOTALL,
@@ -223,10 +204,8 @@ def fetch_articles() -> Tuple[List[Dict], List[Dict]]:
     free_articles = []
     paywall_articles = []
     
-    # Fetch from free sources
     for source in SOURCES:
         try:
-            # Use longer window for investigative/slower sources
             if source["name"] in SLOW_SOURCES:
                 cutoff = slow_cutoff
             else:
@@ -235,7 +214,6 @@ def fetch_articles() -> Tuple[List[Dict], List[Dict]]:
             feed = feedparser.parse(source["url"])
             count = 0
             
-            # Diagnostic logging for Mountain State Spotlight
             if source["name"] == "Mountain State Spotlight":
                 logger.info(f"DEBUG MSS: Feed has {len(feed.entries)} total entries")
                 logger.info(f"DEBUG MSS: Using cutoff date {cutoff}")
@@ -247,7 +225,6 @@ def fetch_articles() -> Tuple[List[Dict], List[Dict]]:
             
             for entry in feed.entries[:MAX_ARTICLES_PER_SOURCE]:
                 try:
-                    # Try to get published date
                     if hasattr(entry, 'published_parsed') and entry.published_parsed:
                         pub_date = datetime(*entry.published_parsed[:6])
                     elif hasattr(entry, 'updated_parsed') and entry.updated_parsed:
@@ -272,7 +249,6 @@ def fetch_articles() -> Tuple[List[Dict], List[Dict]]:
         except Exception as e:
             logger.error(f"✗ {source['name']}: {e}")
     
-    # Fetch from paywall sources
     for source in PAYWALL_SOURCES:
         try:
             feed = feedparser.parse(source["url"])
@@ -311,10 +287,8 @@ def fetch_articles() -> Tuple[List[Dict], List[Dict]]:
 
 def generate_digest(free_articles: List[Dict], paywall_articles: List[Dict]) -> str:
     """Use Claude to generate a curated news digest."""
-    # 300-second timeout prevents indefinite API hangs (raised from 120s for larger digests)
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"], timeout=300.0)
     
-    # Prepare article data for Claude
     free_articles_text = json.dumps(free_articles, indent=2)
     paywall_articles_text = json.dumps(paywall_articles, indent=2) if paywall_articles else "[]"
     
@@ -494,9 +468,13 @@ def build_email(digest: str) -> str:
     return html
 
 def get_subscribers() -> List[str]:
-    """Get subscriber list from Google Sheets - reads ALL tabs and deduplicates."""
+    """Get subscriber list from Google Sheets - reads ALL tabs, ALL columns, and deduplicates.
+    
+    Fixed June 2026: Old version only read column B, which silently dropped ~30 subscribers
+    whose email addresses were in column A (manually added without timestamps).
+    New version scans every cell in every row for email addresses.
+    """
     try:
-        # Load credentials from environment variable
         creds_json = os.environ.get("GOOGLE_SHEETS_CREDENTIALS")
         if not creds_json:
             logger.warning("No Google Sheets credentials found, using fallback email")
@@ -511,25 +489,43 @@ def get_subscribers() -> List[str]:
         credentials = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         gc = gspread.authorize(credentials)
         
-        # Open the spreadsheet by ID
         sheet_id = "12n0VY54S1jjl-KBrL7O_BID_Q90jidifJ_LthmwDYVk"
         spreadsheet = gc.open_by_key(sheet_id)
         
-        all_emails = set()
+        all_emails = set()           # case-normalized for dedup
+        email_display = {}           # preserve original casing for sending
         
-        # Read from ALL tabs to catch form responses and manual additions
         for worksheet in spreadsheet.worksheets():
             try:
-                # Get all email addresses from column B (skip header row)
-                emails = worksheet.col_values(2)[1:]
-                for email in emails:
-                    if email and "@" in email:
-                        all_emails.add(email.strip())
+                all_rows = worksheet.get_all_values()
+                tab_count = 0
+                
+                for row_num, row in enumerate(all_rows):
+                    if row_num == 0:
+                        header_text = " ".join(row).lower()
+                        if any(word in header_text for word in ["email", "timestamp", "address", "subscriber"]):
+                            continue
+                    
+                    for cell in row:
+                        cell = cell.strip()
+                        if cell and "@" in cell and "." in cell:
+                            if cell.startswith("http") or cell.startswith("//"):
+                                continue
+                            email = cell.strip().strip("<>").strip()
+                            if "@" in email and "." in email.split("@")[-1]:
+                                email_lower = email.lower()
+                                if email_lower not in all_emails:
+                                    all_emails.add(email_lower)
+                                    email_display[email_lower] = email
+                                    tab_count += 1
+                
+                logger.info(f"  Tab '{worksheet.title}': {tab_count} new emails")
+                    
             except Exception as e:
                 logger.warning(f"Error reading tab '{worksheet.title}': {e}")
                 continue
         
-        valid_emails = list(all_emails)
+        valid_emails = list(email_display.values())
         logger.info(f"Found {len(valid_emails)} unique subscribers across all tabs")
         return valid_emails
         
@@ -555,13 +551,12 @@ def send_email(html_content: str, recipients: List[str]):
             html_part = MIMEText(html_content, 'html')
             msg.attach(html_part)
             
-            # 30-second timeout prevents indefinite SMTP hangs
             with smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=30) as server:
                 server.login(sender_email, sender_password)
                 server.sendmail(sender_email, recipient, msg.as_string())
             
             logger.info(f"✓ Sent to {recipient}")
-            time.sleep(1)  # Rate limiting
+            time.sleep(1)
             
         except Exception as e:
             logger.error(f"✗ Failed to send to {recipient}: {e}")
@@ -570,34 +565,25 @@ def main():
     """Main function to run the news aggregator."""
     logger.info("Starting Appalachian Daily News aggregator...")
     
-    # Fetch articles from both free and paywall sources
     free_articles, paywall_articles = fetch_articles()
     
     if not free_articles and not paywall_articles:
         logger.warning("No articles found. Exiting.")
         return
     
-    # Generate digest with Claude
     logger.info("Generating digest with Claude...")
     digest = generate_digest(free_articles, paywall_articles)
     
-    # Deterministic safety net: enforce [Commentary] tags from the source signal,
-    # independent of what the model produced.
     commentary_links = {
         a["link"] for a in (free_articles + paywall_articles)
         if a.get("commentary") and a.get("link")
     }
     digest = enforce_commentary_labels(digest, commentary_links)
     
-    # Build email
     html_email = build_email(digest)
     
-    # Get subscribers and send
     subscribers = get_subscribers()
 
-    # TEST MODE (set by the manual "Send only to me" checkbox in workflow_dispatch):
-    # reroute the whole send to just me. Scheduled runs leave TEST_MODE empty,
-    # so they always go to the full subscriber list.
     if os.environ.get("TEST_MODE", "").strip().lower() == "true":
         test_recipient = os.environ.get("RECIPIENT_EMAIL") or os.environ.get("EMAIL_ADDRESS")
         logger.info(f"TEST MODE enabled - sending only to {test_recipient}")
