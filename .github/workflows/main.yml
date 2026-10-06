@@ -10,7 +10,7 @@ on:
         default: true
 jobs:
   run-news-aggregator:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
     - name: Check out repository
       uses: actions/checkout@v5
@@ -32,3 +32,13 @@ jobs:
         GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
         TEST_MODE: ${{ github.event.inputs.test_mode }}
       run: python news_aggregator.py
+
+  keepalive:
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write
+    steps:
+    - name: Keep the daily schedule from being switched off
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: gh workflow enable main.yml --repo ${{ github.repository }}
