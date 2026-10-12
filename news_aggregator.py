@@ -535,8 +535,10 @@ def get_subscribers() -> List[str]:
 
 def send_email(html_content: str, recipients: List[str]):
     """Send the newsletter via Gmail SMTP."""
-    sender_email = os.environ["EMAIL_ADDRESS"]
-    sender_password = os.environ["EMAIL_PASSWORD"]
+    # Strip stray spaces/line breaks picked up when pasting secrets into GitHub.
+    # Gmail app passwords are shown with spaces ("abcd efgh ..."); remove them all.
+    sender_email = os.environ["EMAIL_ADDRESS"].strip()
+    sender_password = "".join(os.environ["EMAIL_PASSWORD"].split())
     
     today = datetime.now().strftime("%B %d, %Y")
     subject = f"Appalachian Daily News - {today}"
@@ -559,7 +561,7 @@ def send_email(html_content: str, recipients: List[str]):
             time.sleep(1)
             
         except Exception as e:
-            logger.error(f"✗ Failed to send to {recipient}: {e}")
+            logger.error(f"✗ Failed to send to {recipient}: {type(e).__name__}: {e}")
 
 def main():
     """Main function to run the news aggregator."""
