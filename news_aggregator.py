@@ -533,17 +533,28 @@ def get_subscribers() -> List[str]:
         logger.error(f"Error accessing Google Sheets: {e}")
         return [os.environ.get("RECIPIENT_EMAIL", "jbranscome@gmail.com")]
 
+class _LoggedSMTP(smtplib.SMTP_SSL):
+    """SMTP_SSL that logs Gmail's replies (never what we send, so no password in logs)."""
+    def _print_debug(self, *args):
+        text = " ".join(str(a) for a in args)
+        if text.startswith("reply:"):
+            logger.info(f"  SMTP {text}")
+
+
 def send_email(html_content: str, recipients: List[str]):
     """Send the newsletter via Gmail SMTP."""
     # Strip stray spaces/line breaks picked up when pasting secrets into GitHub.
     # Gmail app passwords are shown with spaces ("abcd efgh ..."); remove them all.
     sender_email = os.environ["EMAIL_ADDRESS"].strip()
     sender_password = "".join(os.environ["EMAIL_PASSWORD"].split())
+    logger.info(f"Sender address length {len(sender_email)}, contains '@gmail.com': "
+                f"{sender_email.lower().endswith('@gmail.com')}; app password length {len(sender_password)}")
     
     today = datetime.now().strftime("%B %d, %Y")
     subject = f"Appalachian Daily News - {today}"
     
     for recipient in recipients:
+        stage = "preparing"
         try:
             msg = MIMEMultipart('alternative')
             msg['Subject'] = subject
@@ -553,15 +564,21 @@ def send_email(html_content: str, recipients: List[str]):
             html_part = MIMEText(html_content, 'html')
             msg.attach(html_part)
             
-            with smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=30) as server:
+            stage = "connecting"
+            with _LoggedSMTP('smtp.gmail.com', 465, timeout=30) as server:
+                server.set_debuglevel(1)
+                stage = "greeting"
+                server.ehlo()
+                stage = "logging in"
                 server.login(sender_email, sender_password)
+                stage = "sending"
                 server.sendmail(sender_email, recipient, msg.as_string())
             
             logger.info(f"✓ Sent to {recipient}")
             time.sleep(1)
             
         except Exception as e:
-            logger.error(f"✗ Failed to send to {recipient}: {type(e).__name__}: {e}")
+            logger.error(f"✗ Failed to send to {recipient} while {stage}: {type(e).__name__}: {e}")
 
 def main():
     """Main function to run the news aggregator."""
