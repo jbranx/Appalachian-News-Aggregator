@@ -547,11 +547,12 @@ def send_email(html_content: str, recipients: List[str]):
     # Gmail app passwords are shown with spaces ("abcd efgh ..."); remove them all.
     sender_email = os.environ["EMAIL_ADDRESS"].strip()
     sender_password = "".join(os.environ["EMAIL_PASSWORD"].split())
-    logger.info("CHECK sender is appalachiadailynews@gmail.com: "
+    check = ("CHECK sender is appalachiadailynews@gmail.com: "
                 f"{'YES' if sender_email.lower() == 'appalachiadailynews@gmail.com' else 'NO'}"
                 f" | sender is jbranscome@gmail.com: {'YES' if sender_email.lower() == 'jbranscome@gmail.com' else 'NO'}"
                 f" | password looks like an app password (16 lowercase letters): "
                 f"{'YES' if len(sender_password) == 16 and sender_password.isalpha() and sender_password.islower() else 'NO'}")
+    logger.info(check)
     
     today = datetime.now().strftime("%B %d, %Y")
     subject = f"Appalachian Daily News - {today}"
@@ -582,6 +583,7 @@ def send_email(html_content: str, recipients: List[str]):
             
         except Exception as e:
             logger.error(f"✗ Failed to send to {recipient} while {stage}: {type(e).__name__}: {e}")
+            logger.error(check)
 
 def main():
     """Main function to run the news aggregator."""
