@@ -533,57 +533,86 @@ def get_subscribers() -> List[str]:
         logger.error(f"Error accessing Google Sheets: {e}")
         return [os.environ.get("RECIPIENT_EMAIL", "jbranscome@gmail.com")]
 
+# --- Sending -----------------------------------------------------------------
+# Gmail disables accounts that send many identical messages one after another
+# (that is what happened to jbranscome@gmail.com on Oct 12, 2026). So the digest
+# goes out as a few messages, each blind-copied (Bcc) to a batch of readers,
+# with a pause between batches. Readers never see each other's addresses.
+BATCH_SIZE = 20              # readers per message
+PAUSE_BETWEEN_BATCHES = 120  # seconds
+
+
 class _LoggedSMTP(smtplib.SMTP_SSL):
     """SMTP_SSL that logs Gmail's replies (never what we send, so no password in logs)."""
     def _print_debug(self, *args):
         text = " ".join(str(a) for a in args)
-        if text.startswith("reply:"):
+        if text.startswith("reply:") and ("535" in text or "421" in text or "550" in text or "554" in text):
             logger.info(f"  SMTP {text}")
 
 
+def _send_batch(sender_email, sender_password, batch, message_text):
+    """Send one message to a batch of Bcc recipients. Returns addresses Gmail refused."""
+    with _LoggedSMTP('smtp.gmail.com', 465, timeout=60) as server:
+        server.set_debuglevel(1)
+        server.login(sender_email, sender_password)
+        refused = server.sendmail(sender_email, batch, message_text)
+    return refused or {}
+
+
 def send_email(html_content: str, recipients: List[str]):
-    """Send the newsletter via Gmail SMTP."""
+    """Send the newsletter via Gmail SMTP in Bcc batches."""
     # Strip stray spaces/line breaks picked up when pasting secrets into GitHub.
     # Gmail app passwords are shown with spaces ("abcd efgh ..."); remove them all.
     sender_email = os.environ["EMAIL_ADDRESS"].strip()
     sender_password = "".join(os.environ["EMAIL_PASSWORD"].split())
     check = ("CHECK sender is appalachiadailynews@gmail.com: "
-                f"{'YES' if sender_email.lower() == 'appalachiadailynews@gmail.com' else 'NO'}"
-                f" | sender is jbranscome@gmail.com: {'YES' if sender_email.lower() == 'jbranscome@gmail.com' else 'NO'}"
-                f" | password looks like an app password (16 lowercase letters): "
-                f"{'YES' if len(sender_password) == 16 and sender_password.isalpha() and sender_password.islower() else 'NO'}")
-    logger.info(check)
-    
+             f"{'YES' if sender_email.lower() == 'appalachiadailynews@gmail.com' else 'NO'}"
+             f" | password looks like an app password (16 lowercase letters): "
+             f"{'YES' if len(sender_password) == 16 and sender_password.isalpha() and sender_password.islower() else 'NO'}")
+
     today = datetime.now().strftime("%B %d, %Y")
-    subject = f"Appalachian Daily News - {today}"
-    
-    for recipient in recipients:
-        stage = "preparing"
-        try:
-            msg = MIMEMultipart('alternative')
-            msg['Subject'] = subject
-            msg['From'] = f"Appalachian Daily News <{sender_email}>"
-            msg['To'] = recipient
-            
-            html_part = MIMEText(html_content, 'html')
-            msg.attach(html_part)
-            
-            stage = "connecting"
-            with _LoggedSMTP('smtp.gmail.com', 465, timeout=30) as server:
-                server.set_debuglevel(1)
-                stage = "greeting"
-                server.ehlo()
-                stage = "logging in"
-                server.login(sender_email, sender_password)
-                stage = "sending"
-                server.sendmail(sender_email, recipient, msg.as_string())
-            
-            logger.info(f"✓ Sent to {recipient}")
-            time.sleep(1)
-            
-        except Exception as e:
-            logger.error(f"✗ Failed to send to {recipient} while {stage}: {type(e).__name__}: {e}")
-            logger.error(check)
+    msg = MIMEMultipart('alternative')
+    msg['Subject'] = f"Appalachian Daily News - {today}"
+    msg['From'] = f"Appalachian Daily News <{sender_email}>"
+    msg['To'] = f"Appalachian Daily News <{sender_email}>"   # readers are Bcc'd
+    msg.attach(MIMEText(html_content, 'html'))
+    message_text = msg.as_string()
+
+    batches = [recipients[i:i + BATCH_SIZE] for i in range(0, len(recipients), BATCH_SIZE)]
+    logger.info(f"Sending in {len(batches)} batch(es) of up to {BATCH_SIZE}, "
+                f"{PAUSE_BETWEEN_BATCHES}s apart")
+
+    sent = 0
+    failed = []
+    for n, batch in enumerate(batches, 1):
+        if n > 1:
+            time.sleep(PAUSE_BETWEEN_BATCHES)
+        for attempt in (1, 2):
+            try:
+                refused = _send_batch(sender_email, sender_password, batch, message_text)
+                for addr, why in refused.items():
+                    logger.warning(f"  Gmail refused {addr}: {why}")
+                sent += len(batch) - len(refused)
+                logger.info(f"✓ Batch {n}/{len(batches)} sent ({len(batch) - len(refused)} readers)")
+                break
+            except smtplib.SMTPAuthenticationError as e:
+                logger.error(f"✗ Gmail rejected the sign-in: {e}")
+                logger.error(check)
+                failed.extend(batch)
+                break
+            except Exception as e:
+                if attempt == 1:
+                    logger.warning(f"  Batch {n} failed ({type(e).__name__}: {e}); retrying in 60s")
+                    time.sleep(60)
+                else:
+                    logger.error(f"✗ Batch {n} failed again: {type(e).__name__}: {e}")
+                    logger.error(check)
+                    failed.extend(batch)
+
+    logger.info(f"Delivered to {sent} of {len(recipients)} readers")
+    if failed:
+        logger.error(f"✗ {len(failed)} readers did not get today's edition")
+
 
 def main():
     """Main function to run the news aggregator."""
