@@ -2,10 +2,15 @@ name: Daily News Aggregator
 run-name: ${{ (github.event_name == 'workflow_dispatch' && inputs.test_mode) && 'Test run' || 'Daily edition' }}
 on:
   schedule:
-    - cron: '17 11 * * *'
-    # Backup trigger in case GitHub delays or drops the first one.
-    # The duplicate check below makes sure only one edition goes out per day.
-    - cron: '47 14 * * *'
+    # GitHub often starts scheduled runs late or skips them, so there are
+    # several start times (Arizona time in brackets). The duplicate check
+    # below makes sure only one edition goes out per day.
+    - cron: '17 11 * * *'   # 4:17 AM
+    - cron: '43 11 * * *'   # 4:43 AM
+    - cron: '13 12 * * *'   # 5:13 AM
+    - cron: '41 12 * * *'   # 5:41 AM
+    - cron: '11 13 * * *'   # 6:11 AM
+    - cron: '47 14 * * *'   # 7:47 AM
   workflow_dispatch:
     inputs:
       test_mode:
@@ -41,7 +46,9 @@ jobs:
             started = datetime.fromisoformat(r["created_at"].replace("Z", "+00:00")).astimezone(phx).date()
             if started != today:
                 continue
-            if r["conclusion"] == "success" or r["status"] in ("in_progress", "queued"):
+            # An older run that is still going wins; if two start together,
+            # only the newer one steps aside, so one of them always sends.
+            if r["conclusion"] == "success" or (r["status"] in ("in_progress", "queued") and r["id"] < me):
                 print(f"Today's edition already handled by run {r['id']} - skipping.")
                 done = True
                 break

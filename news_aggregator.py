@@ -452,6 +452,9 @@ def build_email(digest: str) -> str:
             <h1>🏔️ Appalachian Daily News</h1>
             <div class="date">{today}</div>
         </div>
+        <p style="background-color:#eef5ee; border-radius:5px; padding:10px; font-size:14px; color:#2c5530; text-align:center; margin:0 0 25px 0;">
+            New sending address: please add <strong>appalachiadailynews@gmail.com</strong> to your contacts so the Daily News reaches your inbox instead of spam or junk.
+        </p>
         
         {digest}
         
